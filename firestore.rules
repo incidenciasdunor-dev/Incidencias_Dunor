@@ -1,0 +1,170 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (from Auth or email-based for pre-registration)
+    // Fields:
+    //   - uid: string (required)
+    //   - name: string (required)
+    //   - email: string (required)
+    //   - phone: string (optional)
+    //   - role: string (required, 'COORDINATOR' | 'TEACHER')
+    //
+    // Collection: incidents
+    // Document ID: auto-generated
+    // Fields:
+    //   - date: string (required, auto-generated)
+    //   - place: string (required)
+    //   - students: string (required)
+    //   - description: string (required)
+    //   - disciplinaryMeasures: string (optional)
+    //   - followUp: string (optional)
+    //   - reporterName: string (required)
+    //   - reporterId: string (required)
+    //   - coordinatorId: string (required)
+    //   - school: string (required, default 'DUNOR')
+    //   - isReceived: bool (required)
+    //   - createdAt: number (required)
+    //
+    // Collection: notifications
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required)
+    //   - title: string (required)
+    //   - message: string (required)
+    //   - incidentId: string (required)
+    //   - read: bool (required)
+    //   - createdAt: number (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && (
+        request.auth.token.email == userId ||
+        (exists(/databases/$(database)/documents/users/$(userId)) && 
+         get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid)
+      );
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        (request.auth.token.email == "jorge.villanueva@boletomovil.com" && request.auth.token.email_verified == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.token.email)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role == 'ADMIN')
+      );
+    }
+
+    function isCoordinator() {
+      return isAuthenticated() && (
+        isAdmin() || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.token.email)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role == 'COORDINATOR')
+      );
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role']) &&
+             data.uid is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
+             data.role in ['ADMIN', 'COORDINATOR', 'TEACHER'] &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() < 20)) &&
+             (!('isRegistered' in data) || data.isRegistered is bool) &&
+             (!('updatedAt' in data) || data.updatedAt is number);
+    }
+
+    function isValidIncident(data) {
+      return data.keys().hasAll(['date', 'place', 'students', 'description', 'reporterName', 'reporterId', 'coordinatorId', 'school', 'isReceived', 'createdAt']) &&
+             data.date is string &&
+             data.place is string && data.place.size() > 0 && data.place.size() < 200 &&
+             data.students is string && data.students.size() > 0 && data.students.size() < 500 &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 5000 &&
+             data.reporterName is string &&
+             data.reporterId is string &&
+             data.coordinatorId is string &&
+             data.school is string &&
+             data.isReceived is bool &&
+             data.createdAt is number &&
+             (!('status' in data) || data.status in ['PENDIENTE', 'RECIBIDO', 'EN_SEGUIMIENTO', 'CERRADO']) &&
+             (!('followUp' in data) || data.followUp is string) &&
+             (!('followUpHistory' in data) || data.followUpHistory is list) &&
+             (!('images' in data) || data.images is list) &&
+             (!('forwardedTo' in data) || data.forwardedTo is list) &&
+             (!('readAt' in data) || data.readAt is number) &&
+             (!('receivedByName' in data) || data.receivedByName is string) &&
+             (!('reporterEmail' in data) || data.reporterEmail is string);
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['userId', 'title', 'message', 'incidentId', 'read', 'createdAt']) &&
+             data.userId is string &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.message is string && data.message.size() > 0 && data.message.size() < 1000 &&
+             data.incidentId is string &&
+             data.read is bool &&
+             data.createdAt is number;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow get: if true; 
+      allow list: if isAuthenticated() && (isAdmin() || isCoordinator() || request.query.limit <= 100);
+      allow create: if (isAuthenticated() && isValidUser(request.resource.data) && (
+                      isOwner(userId) || 
+                      (isAdmin() && request.resource.data.role == 'ADMIN') ||
+                      (isCoordinator() && request.resource.data.role != 'ADMIN') ||
+                      request.auth.token.email == request.resource.data.email
+                    )) ||
+                   (!isAuthenticated() && request.resource.data.email == "jorge.villanueva@boletomovil.com" && isValidUser(request.resource.data));
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
+                      isOwner(userId) || 
+                      isAdmin() ||
+                      (isCoordinator() && resource.data.role != 'ADMIN' && request.resource.data.role != 'ADMIN')
+                    );
+      allow delete: if isAdmin() || (isCoordinator() && resource.data.role != 'ADMIN');
+    }
+
+    match /incidents/{incidentId} {
+      allow read: if isAuthenticated() && (
+        resource.data.reporterId == request.auth.uid ||
+        resource.data.coordinatorId == request.auth.uid ||
+        isCoordinator()
+      );
+      allow create: if isAuthenticated() && isValidIncident(request.resource.data) && request.resource.data.reporterId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        (isCoordinator() && isValidIncident(request.resource.data)) ||
+        (resource.data.reporterId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isReceived']) == false && isValidIncident(request.resource.data))
+      );
+      allow delete: if isCoordinator();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email);
+      allow create: if isAuthenticated() && isValidNotification(request.resource.data);
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email) && 
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email);
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+  }
+}
