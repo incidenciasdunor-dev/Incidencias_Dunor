@@ -34,7 +34,7 @@ async function startServer() {
 
     try {
       await transporter.sendMail({
-        from: `"DUNOR Sistema de Incidencias" <${user}>`,
+        from: `"Diario Sistema de Incidencias" <${user}>`,
         to,
         subject,
         html,

@@ -26,7 +26,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     await transporter.sendMail({
-      from: `"DUNOR Sistema de Incidencias" <${user}>`,
+      from: `"Diario Sistema de Incidencias" <${user}>`,
       to,
       subject,
       html,

@@ -127,7 +127,7 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{userId} {
-      allow get: if isAuthenticated() || userId.lower() == "jorge.villanueva@boletomovil.com";
+      allow get: if true;
       allow list: if isAuthenticated() && (isAdmin() || isCoordinator() || request.query.limit <= 100);
       allow create: if (isAuthenticated() && isValidUser(request.resource.data) && (
                       isOwner(userId) || 

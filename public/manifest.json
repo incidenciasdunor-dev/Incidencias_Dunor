@@ -1,7 +1,7 @@
 {
-  "name": "DUNOR Incident Tracker",
-  "short_name": "DUNOR",
-  "description": "School incident reporting and management system.",
+  "name": "Diario",
+  "short_name": "Diario",
+  "description": "Sistema de reporte y gestión de incidencias escolares.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f8fafc",

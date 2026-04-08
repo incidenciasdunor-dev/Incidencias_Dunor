@@ -1,5 +1,5 @@
 {
-  "name": "DUNOR Incident Tracker",
-  "description": "A school incident reporting and management system for coordinators and teachers at DUNOR.",
+  "name": "Diario",
+  "description": "Un sistema de reporte y gestión de incidencias escolares para coordinadores y docentes.",
   "requestFramePermissions": []
 }

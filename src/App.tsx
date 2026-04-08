@@ -26,11 +26,11 @@ const Logo = ({ className, short = false }: { className?: string, short?: boolea
       y="50%" 
       textAnchor="middle" 
       dominantBaseline="central" 
-      fontSize={short ? "55" : "38"} 
+      fontSize={short ? "65" : "38"} 
       fontWeight="900" 
       fontFamily="sans-serif"
     >
-      {short ? "D.D." : "Diario del Docente"}
+      {short ? "D" : "Diario del Docente"}
     </text>
   </svg>
 );
@@ -469,7 +469,8 @@ const RoleSelection = ({ user, onRoleSelected }: { user: User, onRoleSelected: (
 export default function App() {
   const [user, loading, error] = useAuthState(auth);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [hasCheckedProfile, setHasCheckedProfile] = useState(false);
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     title: string;
@@ -652,6 +653,7 @@ export default function App() {
   useEffect(() => {
     if (user && user.email) {
       setIsProfileLoading(true);
+      setHasCheckedProfile(false);
       const emailId = user.email.toLowerCase().trim();
       const unsubscribe = onSnapshot(doc(db, 'users', emailId), async (snapshot) => {
         if (snapshot.exists()) {
@@ -669,14 +671,17 @@ export default function App() {
           setProfile(null);
         }
         setIsProfileLoading(false);
+        setHasCheckedProfile(true);
       }, (error) => {
         handleFirestoreError(error, OperationType.GET, `users/${emailId}`);
         setIsProfileLoading(false);
+        setHasCheckedProfile(true);
       });
       return () => unsubscribe();
     } else {
       setProfile(null);
       setIsProfileLoading(false);
+      setHasCheckedProfile(false);
     }
   }, [user]);
 
@@ -773,9 +778,9 @@ export default function App() {
     }
   }, [user, profile, isProfileLoading]);
 
-  if (loading || isProfileLoading) return <LoadingScreen />;
+  if (loading || (user && !hasCheckedProfile)) return <LoadingScreen />;
   if (!user) return <LoginScreen />;
-  if (!profile && !isProfileLoading) return (
+  if (!profile) return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 text-center">
         <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
@@ -1509,7 +1514,7 @@ export default function App() {
                 <Logo className="h-8" short />
               </div>
               <div className="flex-1">
-                <h4 className="font-bold text-slate-900 text-sm">Instalar DUNOR</h4>
+                <h4 className="font-bold text-slate-900 text-sm">Instalar Diario</h4>
                 <p className="text-xs text-slate-500">Añade la app a tu pantalla de inicio para un acceso rápido y mejor experiencia.</p>
               </div>
               <div className="flex flex-col gap-2">
@@ -1958,7 +1963,7 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
     disciplinaryMeasures: '',
     followUp: '',
     coordinatorId: '',
-    school: 'DUNOR Victoria',
+    school: 'Diario Victoria',
   });
   const [images, setImages] = useState<string[]>([]);
 
@@ -2135,8 +2140,8 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
               onChange={(e) => setFormData({ ...formData, school: e.target.value })}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
             >
-              <option value="DUNOR Victoria">DUNOR Victoria</option>
-              <option value="DUNOR Esperanza">DUNOR Esperanza</option>
+              <option value="Diario Victoria">Diario Victoria</option>
+              <option value="Diario Esperanza">Diario Esperanza</option>
             </select>
           </InputGroup>
         </div>
