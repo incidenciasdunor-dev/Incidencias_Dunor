@@ -6,7 +6,7 @@
 import React, { useState, useEffect, Component, ReactNode } from 'react';
 import { auth, db } from './lib/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, collectionGroup, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, collectionGroup, arrayUnion, limit } from 'firebase/firestore';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { Plus, LogOut, UserPlus, Users, ClipboardList, CheckCircle2, AlertCircle, ChevronRight, Menu, X, Trash2, Edit2, Phone, Mail, User as UserIcon, School, Lock, Eye, EyeOff, Image as ImageIcon, History, Send, Settings } from 'lucide-react';
 import { format } from 'date-fns';
@@ -556,6 +556,21 @@ export default function App() {
     }
   };
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallPrompt(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
 
   useEffect(() => {
     // PWA Install Prompt Logic
@@ -597,11 +612,13 @@ export default function App() {
 
   useEffect(() => {
     if (profile?.role === 'ADMIN' || isSuperAdmin) {
-      const q = query(collection(db, 'users'), where('role', '==', 'ADMIN'));
+      const q = query(collection(db, 'users'), where('role', '==', 'ADMIN'), limit(100));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const users = snapshot.docs.map(doc => doc.data() as UserProfile);
         const uniqueUsers = Array.from(new Map(users.map(u => [u.email, u])).values());
         setAdmins(uniqueUsers);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'users (admins)');
       });
       return () => unsubscribe();
     }
@@ -634,6 +651,7 @@ export default function App() {
 
   useEffect(() => {
     if (user && user.email) {
+      setIsProfileLoading(true);
       const emailId = user.email.toLowerCase().trim();
       const unsubscribe = onSnapshot(doc(db, 'users', emailId), async (snapshot) => {
         if (snapshot.exists()) {
@@ -650,6 +668,9 @@ export default function App() {
         } else {
           setProfile(null);
         }
+        setIsProfileLoading(false);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, `users/${emailId}`);
         setIsProfileLoading(false);
       });
       return () => unsubscribe();
@@ -689,12 +710,14 @@ export default function App() {
 
   useEffect(() => {
     if (profile?.role === 'COORDINATOR' || profile?.role === 'TEACHER' || profile?.role === 'ADMIN' || isSuperAdmin) {
-      const q = query(collection(db, 'users'), where('role', '==', 'COORDINATOR'));
+      const q = query(collection(db, 'users'), where('role', '==', 'COORDINATOR'), limit(100));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const users = snapshot.docs.map(doc => doc.data() as UserProfile);
         // Deduplicate by email (since uid might be missing for pre-registered)
         const uniqueUsers = Array.from(new Map(users.map(u => [u.email, u])).values());
         setCoordinators(uniqueUsers);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'users (coordinators)');
       });
       return () => unsubscribe();
     }
@@ -702,11 +725,13 @@ export default function App() {
 
   useEffect(() => {
     if (profile?.role === 'ADMIN' || isSuperAdmin) {
-      const q = query(collection(db, 'users'), where('role', '==', 'TEACHER'));
+      const q = query(collection(db, 'users'), where('role', '==', 'TEACHER'), limit(100));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const users = snapshot.docs.map(doc => doc.data() as UserProfile);
         const uniqueUsers = Array.from(new Map(users.map(u => [u.email, u])).values());
         setTeachers(uniqueUsers);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'users (teachers)');
       });
       return () => unsubscribe();
     }
@@ -714,12 +739,14 @@ export default function App() {
 
   useEffect(() => {
     if (profile?.role === 'COORDINATOR') {
-      const q = query(collection(db, 'users'), where('role', '==', 'TEACHER'));
+      const q = query(collection(db, 'users'), where('role', '==', 'TEACHER'), limit(100));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const users = snapshot.docs.map(doc => doc.data() as UserProfile);
         // Deduplicate by email
         const uniqueUsers = Array.from(new Map(users.map(u => [u.email, u])).values());
         setTeachers(uniqueUsers);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'users (teachers-coordinator)');
       });
       return () => unsubscribe();
     }
@@ -748,7 +775,21 @@ export default function App() {
 
   if (loading || isProfileLoading) return <LoadingScreen />;
   if (!user) return <LoginScreen />;
-  if (!profile) return <RoleSelection user={user} onRoleSelected={() => {}} />;
+  if (!profile && !isProfileLoading) return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 p-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 text-center">
+        <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+        <h2 className="text-2xl font-bold text-slate-900 mb-2">Acceso No Autorizado</h2>
+        <p className="text-slate-600 mb-6">Tu correo no está registrado en el sistema o no tienes un perfil asignado. Contacta a tu administrador.</p>
+        <button
+          onClick={() => signOut(auth)}
+          className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-all"
+        >
+          Cerrar sesión
+        </button>
+      </div>
+    </div>
+  );
 
   const handleLogout = () => signOut(auth);
 
@@ -908,9 +949,20 @@ export default function App() {
     });
   };
 
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+      setShowInstallPrompt(false);
+    }
+  };
+
   const forwardIncidentToAdmin = async (incident: Incident, adminId: string) => {
     if (!systemSettings.forwardingEnabled) return;
     if (profile.role !== 'COORDINATOR' && !isSuperAdmin) return;
+    if (incident.status !== 'EN_SEGUIMIENTO') return;
     try {
       const admin = admins.find(a => a.uid === adminId);
       if (admin) {
@@ -924,6 +976,38 @@ export default function App() {
         await updateDoc(doc(db, 'incidents', incident.id), {
           forwardedTo: arrayUnion(adminId)
         });
+
+        // Send email notification to the admin
+        if (systemSettings.emailNotificationsEnabled && admin.email) {
+          try {
+            await fetch('/api/send-email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                to: admin.email,
+                subject: `Incidencia Reenviada: ${incident.place}`,
+                html: `
+                  <div style="font-family: sans-serif; color: #334155; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+                    <div style="background-color: #4f46e5; padding: 24px; text-align: center;">
+                      <h1 style="color: white; margin: 0; font-size: 24px;">Incidencia Reenviada</h1>
+                    </div>
+                    <div style="padding: 24px;">
+                      <p style="font-size: 16px; margin-bottom: 20px;">${profile.name} ha reenviado una incidencia para tu revisión.</p>
+                      <div style="background-color: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+                        <p style="margin: 0 0 8px 0;"><strong>Lugar:</strong> ${incident.place}</p>
+                        <p style="margin: 0 0 8px 0;"><strong>Colegio:</strong> ${incident.school}</p>
+                        <p style="margin: 0 0 8px 0;"><strong>Descripción:</strong> ${incident.description}</p>
+                      </div>
+                      <p style="font-size: 14px; color: #64748b;">Por favor, ingresa al sistema para revisar el reporte completo.</p>
+                    </div>
+                  </div>
+                `
+              })
+            });
+          } catch (emailError) {
+            console.error("Error sending forwarding notification email:", emailError);
+          }
+        }
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `incidents/${incident.id}`);
@@ -935,38 +1019,58 @@ export default function App() {
       <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-slate-200 p-4 flex items-center justify-between sticky top-0 z-50">
-        <div className="flex items-center gap-2">
+        <button 
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
+          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+        >
           <div className="w-auto h-8 flex items-center justify-center rounded-lg bg-white shadow-sm border border-slate-100 px-2 text-blue-700">
             <Logo className="h-full" short />
           </div>
           <span className="font-bold text-slate-900">DUNOR</span>
-        </div>
-        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-600">
-          {isSidebarOpen ? <X /> : <Menu />}
         </button>
+        <div className="flex items-center gap-2">
+          {/* Notifications or other mobile header actions could go here */}
+        </div>
       </div>
 
       {/* Sidebar */}
       <AnimatePresence>
         {(isSidebarOpen || window.innerWidth >= 768) && (
-          <motion.aside
-            initial={{ x: -300 }}
-            animate={{ x: 0 }}
-            exit={{ x: -300 }}
-            className={cn(
-              "fixed md:sticky top-0 left-0 h-screen w-64 bg-white border-r border-slate-200 z-40 transition-all duration-300",
-              !isSidebarOpen && "hidden md:block"
+          <>
+            {/* Mobile Overlay */}
+            {isSidebarOpen && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsSidebarOpen(false)}
+                className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 md:hidden"
+              />
             )}
-          >
-            <div className="p-6 flex flex-col h-full">
-              <div className="hidden md:flex items-center gap-3 mb-10">
-                <div className="w-auto h-10 flex items-center justify-center rounded-lg bg-white shadow-sm border border-slate-100 px-3 py-1 text-blue-700">
-                  <Logo className="h-full" />
+            <motion.aside
+              initial={{ x: -300 }}
+              animate={{ x: 0 }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              exit={{ x: -300 }}
+              className={cn(
+                "fixed top-0 left-0 h-full w-72 bg-white border-r border-slate-200 z-50 md:sticky md:h-screen md:z-30",
+                !isSidebarOpen && "hidden md:block"
+              )}
+            >
+              <div className="p-6 flex flex-col h-full overflow-y-auto">
+                <div className="flex items-center justify-between mb-10">
+                  <div className="flex items-center gap-3">
+                    <div className="w-auto h-10 flex items-center justify-center rounded-lg bg-white shadow-sm border border-slate-100 px-3 py-1 text-blue-700">
+                      <Logo className="h-full" />
+                    </div>
+                    <span className="text-xl font-bold text-slate-900 tracking-tight">DUNOR</span>
+                  </div>
+                  <button onClick={() => setIsSidebarOpen(false)} className="md:hidden p-2 text-slate-400">
+                    <X className="w-6 h-6" />
+                  </button>
                 </div>
-                <span className="text-xl font-bold text-slate-900 tracking-tight">DUNOR</span>
-              </div>
 
-              <div className="space-y-1 flex-1">
+                <div className="space-y-1 flex-1">
                 <SidebarItem
                   icon={<ClipboardList className="w-5 h-5" />}
                   label="Incidencias"
@@ -1012,34 +1116,30 @@ export default function App() {
                 )}
               </div>
 
-              <div className="mt-auto pt-6 border-t border-slate-100">
+              {/* Bottom Section with Logout */}
+              <div className="mt-auto pt-6 border-t border-slate-100 bg-white sticky bottom-0">
                 <div className="flex items-center gap-3 mb-4 px-2">
-                  <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold">
+                  <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold flex-shrink-0">
                     {profile.name.charAt(0)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-slate-900 truncate">{profile.name}</p>
                     <p className="text-xs text-slate-500 truncate">
-                      {profile.email === 'jorge.villanueva@boletomovil.com' 
-                        ? 'Super Admin' 
-                        : profile.role === 'ADMIN' 
-                          ? 'Administrador' 
-                          : profile.role === 'COORDINATOR' 
-                            ? 'Coordinador' 
-                            : 'Docente'}
+                      {isSuperAdmin ? 'Super Admin' : profile.role}
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                  className="w-full flex items-center gap-3 px-3 py-3 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all mb-2"
                 >
                   <LogOut className="w-5 h-5" />
-                  <span className="font-medium">Cerrar sesión</span>
+                  <span className="font-bold">Cerrar sesión</span>
                 </button>
               </div>
             </div>
           </motion.aside>
+          </>
         )}
       </AnimatePresence>
 
@@ -1409,27 +1509,24 @@ export default function App() {
                 <Logo className="h-8" short />
               </div>
               <div className="flex-1">
-                <h4 className="font-bold text-slate-900 text-sm">Instala DUNOR</h4>
-                <p className="text-xs text-slate-500">Añade la app a tu pantalla de inicio para un acceso rápido.</p>
+                <h4 className="font-bold text-slate-900 text-sm">Instalar DUNOR</h4>
+                <p className="text-xs text-slate-500">Añade la app a tu pantalla de inicio para un acceso rápido y mejor experiencia.</p>
               </div>
               <div className="flex flex-col gap-2">
                 <button 
-                  onClick={() => {
-                    setShowInstallPrompt(false);
-                    localStorage.setItem('hasSeenInstallPrompt', 'true');
-                  }}
-                  className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg"
+                  onClick={handleInstallClick}
+                  className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg shadow-md shadow-indigo-100"
                 >
-                  Entendido
+                  Instalar
                 </button>
                 <button 
                   onClick={() => {
                     setShowInstallPrompt(false);
                     localStorage.setItem('hasSeenInstallPrompt', 'true');
                   }}
-                  className="text-[10px] text-slate-400 font-bold"
+                  className="text-[10px] text-slate-400 font-bold hover:text-slate-600"
                 >
-                  Cerrar
+                  Más tarde
                 </button>
               </div>
             </motion.div>
@@ -1792,7 +1889,7 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
                 )}
               </div>
 
-              {role === 'COORDINATOR' && systemSettings.forwardingEnabled && (
+              {(role === 'COORDINATOR' || isSuperAdmin) && systemSettings.forwardingEnabled && incident.status === 'EN_SEGUIMIENTO' && (
                 <div className="pt-4 border-t border-slate-200">
                   <p className="text-xs font-bold text-slate-400 uppercase mb-2">Reenviar a Administrador:</p>
                   <div className="flex flex-wrap gap-2">
@@ -1804,20 +1901,34 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
                           <button
                             key={admin.uid}
                             disabled={isForwarded}
-                            onClick={() => onForward(admin.uid)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onForward(admin.uid);
+                            }}
                             className={cn(
                               "px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-all",
                               isForwarded 
-                                ? "bg-slate-100 text-slate-400 cursor-not-allowed" 
-                                : "bg-white border border-slate-200 text-slate-700 hover:border-indigo-300 hover:bg-indigo-50"
+                                ? "bg-emerald-50 text-emerald-600 border border-emerald-100" 
+                                : "bg-white border border-slate-200 text-slate-700 hover:border-indigo-600 hover:text-indigo-600"
                             )}
                           >
-                            <Send className="w-3 h-3" />
-                            {admin.name}
-                            {isForwarded && <CheckCircle2 className="w-3 h-3 text-white" />}
+                            {isForwarded ? (
+                              <>
+                                <CheckCircle2 className="w-3 h-3" />
+                                Enviado a {admin.name}
+                              </>
+                            ) : (
+                              <>
+                                <Send className="w-3 h-3" />
+                                {admin.name}
+                              </>
+                            )}
                           </button>
                         );
                       })}
+                    {(!systemSettings.coordinatorAdminMapping[profile.uid] || systemSettings.coordinatorAdminMapping[profile.uid].length === 0) && (
+                      <p className="text-[10px] text-slate-400 italic">No tienes administradores vinculados para reenvío.</p>
+                    )}
                   </div>
                 </div>
               )}

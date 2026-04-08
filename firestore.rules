@@ -51,27 +51,31 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function getEmail() {
+      return request.auth.token.email != null ? request.auth.token.email.lower() : "";
+    }
+
     function isOwner(userId) {
       return isAuthenticated() && (
-        request.auth.token.email == userId ||
-        (exists(/databases/$(database)/documents/users/$(userId)) && 
-         get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid)
+        getEmail() == userId.lower() ||
+        (exists(/databases/$(database)/documents/users/$(userId.lower())) && 
+         get(/databases/$(database)/documents/users/$(userId.lower())).data.uid == request.auth.uid)
       );
     }
 
     function isAdmin() {
       return isAuthenticated() && (
-        (request.auth.token.email.lower() == "jorge.villanueva@boletomovil.com") ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.token.email.lower())) && 
-         get(/databases/$(database)/documents/users/$(request.auth.token.email.lower())).data.role == 'ADMIN')
+        (getEmail() == "jorge.villanueva@boletomovil.com") ||
+        (exists(/databases/$(database)/documents/users/$(getEmail())) && 
+         get(/databases/$(database)/documents/users/$(getEmail())).data.role == 'ADMIN')
       );
     }
 
     function isCoordinator() {
       return isAuthenticated() && (
         isAdmin() || 
-        (exists(/databases/$(database)/documents/users/$(request.auth.token.email.lower())) && 
-         get(/databases/$(database)/documents/users/$(request.auth.token.email.lower())).data.role == 'COORDINATOR')
+        (exists(/databases/$(database)/documents/users/$(getEmail())) && 
+         get(/databases/$(database)/documents/users/$(getEmail())).data.role == 'COORDINATOR')
       );
     }
 
@@ -123,15 +127,15 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{userId} {
-      allow get: if true; 
+      allow get: if isAuthenticated() || userId.lower() == "jorge.villanueva@boletomovil.com";
       allow list: if isAuthenticated() && (isAdmin() || isCoordinator() || request.query.limit <= 100);
       allow create: if (isAuthenticated() && isValidUser(request.resource.data) && (
                       isOwner(userId) || 
-                      (isAdmin() && request.resource.data.role == 'ADMIN') ||
+                      isAdmin() ||
                       (isCoordinator() && request.resource.data.role != 'ADMIN') ||
-                      request.auth.token.email == request.resource.data.email
+                      getEmail() == request.resource.data.email.lower()
                     )) ||
-                   (!isAuthenticated() && request.resource.data.email == "jorge.villanueva@boletomovil.com" && isValidUser(request.resource.data));
+                   (!isAuthenticated() && request.resource.data.email.lower() == "jorge.villanueva@boletomovil.com" && isValidUser(request.resource.data));
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
                       isOwner(userId) || 
                       isAdmin() ||
@@ -143,23 +147,28 @@ service cloud.firestore {
     match /incidents/{incidentId} {
       allow read: if isAuthenticated() && (
         resource.data.reporterId == request.auth.uid ||
+        resource.data.reporterId == getEmail() ||
         resource.data.coordinatorId == request.auth.uid ||
-        isCoordinator()
+        resource.data.coordinatorId == getEmail() ||
+        isCoordinator() ||
+        isAdmin()
       );
       allow create: if isAuthenticated() && isValidIncident(request.resource.data) && request.resource.data.reporterId == request.auth.uid;
       allow update: if isAuthenticated() && (
         (isCoordinator() && isValidIncident(request.resource.data)) ||
-        (resource.data.reporterId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isReceived']) == false && isValidIncident(request.resource.data))
+        (isAdmin() && isValidIncident(request.resource.data)) ||
+        (resource.data.reporterId == request.auth.uid && isValidIncident(request.resource.data)) ||
+        (resource.data.reporterId == getEmail() && isValidIncident(request.resource.data))
       );
-      allow delete: if isCoordinator();
+      allow delete: if isCoordinator() || isAdmin();
     }
 
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email);
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.userId == getEmail());
       allow create: if isAuthenticated() && isValidNotification(request.resource.data);
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email) && 
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.userId == getEmail()) && 
                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
-      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email);
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.userId == getEmail());
     }
 
     match /settings/{settingId} {
