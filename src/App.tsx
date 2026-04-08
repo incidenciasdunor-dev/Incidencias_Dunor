@@ -5,8 +5,8 @@
 
 import React, { useState, useEffect, Component, ReactNode } from 'react';
 import { auth, db } from './lib/firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, collectionGroup, arrayUnion, limit } from 'firebase/firestore';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { doc, getDoc, setDoc, collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, collectionGroup, arrayUnion, limit, writeBatch } from 'firebase/firestore';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { Plus, LogOut, UserPlus, Users, ClipboardList, CheckCircle2, AlertCircle, ChevronRight, Menu, X, Trash2, Edit2, Phone, Mail, User as UserIcon, School, Lock, Eye, EyeOff, Image as ImageIcon, History, Send, Settings } from 'lucide-react';
 import { format } from 'date-fns';
@@ -30,7 +30,7 @@ const Logo = ({ className, short = false }: { className?: string, short?: boolea
       fontWeight="900" 
       fontFamily="sans-serif"
     >
-      {short ? "D" : "Diario del Docente"}
+      {short ? "D" : "DUNOR"}
     </text>
   </svg>
 );
@@ -152,6 +152,7 @@ const LoginScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [preProfile, setPreProfile] = useState<UserProfile | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   const checkEmail = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -204,6 +205,22 @@ const LoginScreen = () => {
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (!email) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await sendPasswordResetEmail(auth, email.toLowerCase().trim());
+      setResetSent(true);
+      setError(null);
+    } catch (err: any) {
+      console.error(err);
+      setError("Error al enviar el correo de recuperación. Verifica que el correo sea correcto.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password !== confirmPassword) {
@@ -224,9 +241,13 @@ const LoginScreen = () => {
         user = result.user;
       } catch (authErr: any) {
         if (authErr.code === 'auth/email-already-in-use') {
-          // If already in use, try to sign in instead (maybe a previous failed registration)
-          const result = await signInWithEmailAndPassword(auth, email.toLowerCase().trim(), password);
-          user = result.user;
+          // Requirement 4: User exists in Auth but is being re-added in Firestore
+          // We can't set a new password directly, so we trigger a reset
+          await sendPasswordResetEmail(auth, email.toLowerCase().trim());
+          setError("Este correo ya tiene una cuenta activa en el sistema de autenticación. Se ha enviado un enlace a tu correo para que generes una nueva contraseña.");
+          setResetSent(true);
+          setLoading(false);
+          return;
         } else {
           throw authErr;
         }
@@ -283,6 +304,13 @@ const LoginScreen = () => {
           <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-600 text-sm font-medium">
             <AlertCircle className="w-5 h-5 flex-shrink-0" />
             {error}
+          </div>
+        )}
+
+        {resetSent && (
+          <div className="mb-6 p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center gap-3 text-emerald-600 text-sm font-medium">
+            <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+            Se ha enviado un correo para restablecer tu contraseña. Revisa tu bandeja de entrada.
           </div>
         )}
 
@@ -352,6 +380,15 @@ const LoginScreen = () => {
                 </button>
               </div>
             </InputGroup>
+            <div className="flex justify-end">
+              <button 
+                type="button"
+                onClick={handleForgotPassword}
+                className="text-xs text-indigo-600 font-bold hover:underline"
+              >
+                ¿Olvidaste tu contraseña?
+              </button>
+            </div>
             <button
               type="submit"
               disabled={loading}
@@ -464,6 +501,30 @@ const RoleSelection = ({ user, onRoleSelected }: { user: User, onRoleSelected: (
 
 export default function App() {
   const [user, loading, error] = useAuthState(auth);
+  
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
+          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">Error de Autenticación</h2>
+          <p className="text-slate-600 mb-6">{error.message}</p>
+          <p className="text-xs text-slate-400 mb-6">Verifica la configuración de Firebase en Vercel.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-all"
+          >
+            Recargar aplicación
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return <AppContent user={user} loading={loading} />;
+}
+
+function AppContent({ user, loading }: { user: User | null | undefined, loading: boolean }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [hasCheckedProfile, setHasCheckedProfile] = useState(false);
@@ -493,6 +554,10 @@ export default function App() {
   const [systemSettings, setSystemSettings] = useState<SystemSettings>(DEFAULT_SETTINGS);
   const [selectedMappingAdmin, setSelectedMappingAdmin] = useState('');
   const [selectedMappingCoordinator, setSelectedMappingCoordinator] = useState('');
+  const [selectedIncidents, setSelectedIncidents] = useState<string[]>([]);
+  const [selectedNotifications, setSelectedNotifications] = useState<string[]>([]);
+  const [isNotifSelectionMode, setIsNotifSelectionMode] = useState(false);
+  const [expandedIncidentId, setExpandedIncidentId] = useState<string | null>(null);
 
   const isSuperAdmin = profile?.email?.toLowerCase() === 'jorge.villanueva@boletomovil.com';
 
@@ -1019,6 +1084,53 @@ export default function App() {
     }
   };
 
+  const deleteMultipleIncidents = async () => {
+    if (selectedIncidents.length === 0) return;
+    
+    setConfirmModal({
+      isOpen: true,
+      title: 'Eliminar Incidencias',
+      message: `¿Estás seguro de eliminar ${selectedIncidents.length} incidencias seleccionadas? Esta acción no se puede deshacer.`,
+      onConfirm: async () => {
+        try {
+          const batch = writeBatch(db);
+          selectedIncidents.forEach(id => {
+            batch.delete(doc(db, 'incidents', id));
+          });
+          await batch.commit();
+          setSelectedIncidents([]);
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, 'incidents/multiple');
+        }
+      }
+    });
+  };
+
+  const deleteMultipleNotifications = async () => {
+    if (selectedNotifications.length === 0) return;
+    
+    setConfirmModal({
+      isOpen: true,
+      title: 'Eliminar Notificaciones',
+      message: `¿Estás seguro de eliminar ${selectedNotifications.length} notificaciones seleccionadas?`,
+      onConfirm: async () => {
+        try {
+          const batch = writeBatch(db);
+          selectedNotifications.forEach(id => {
+            batch.delete(doc(db, 'notifications', id));
+          });
+          await batch.commit();
+          setSelectedNotifications([]);
+          setIsNotifSelectionMode(false);
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, 'notifications/multiple');
+        }
+      }
+    });
+  };
+
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
@@ -1164,6 +1276,20 @@ export default function App() {
                   <p className="text-slate-500">Visualiza y gestiona los reportes escolares</p>
                 </div>
                 <div className="flex items-center gap-2">
+                  {isSuperAdmin && incidents.length > 0 && (
+                    <button
+                      onClick={() => {
+                        if (selectedIncidents.length === incidents.length) {
+                          setSelectedIncidents([]);
+                        } else {
+                          setSelectedIncidents(incidents.map(i => i.id));
+                        }
+                      }}
+                      className="hidden md:flex items-center gap-2 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                    >
+                      {selectedIncidents.length === incidents.length ? 'Deseleccionar todo' : 'Seleccionar todo'}
+                    </button>
+                  )}
                   <button
                     onClick={() => setActiveTab('notifications')}
                     className="relative md:hidden p-3 text-slate-600 hover:bg-slate-100 rounded-full transition-all"
@@ -1185,6 +1311,36 @@ export default function App() {
               </div>
 
               <div className="space-y-4">
+                {isSuperAdmin && selectedIncidents.length > 0 && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-indigo-600 text-white p-4 rounded-2xl shadow-lg flex items-center justify-between sticky top-20 z-10"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center font-bold">
+                        {selectedIncidents.length}
+                      </div>
+                      <span className="font-bold">Incidencias seleccionadas</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => setSelectedIncidents([])}
+                        className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-bold transition-all"
+                      >
+                        Cancelar
+                      </button>
+                      <button 
+                        onClick={deleteMultipleIncidents}
+                        className="px-4 py-2 bg-red-500 hover:bg-red-600 rounded-lg text-sm font-bold flex items-center gap-2 transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Eliminar
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
                 {incidents.length === 0 ? (
                   <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl p-12 text-center">
                     <ClipboardList className="w-12 h-12 text-slate-300 mx-auto mb-4" />
@@ -1203,6 +1359,14 @@ export default function App() {
                       onForward={(adminId: string) => forwardIncidentToAdmin(incident, adminId)}
                       systemSettings={systemSettings}
                       admins={admins}
+                      selectable={isSuperAdmin}
+                      selected={selectedIncidents.includes(incident.id)}
+                      onSelect={(id) => {
+                        setSelectedIncidents(prev => 
+                          prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+                        );
+                      }}
+                      expandedIncidentId={expandedIncidentId}
                     />
                   ))
                 )}
@@ -1217,9 +1381,42 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
             >
-              <div className="mb-8">
-                <h1 className="text-2xl font-bold text-slate-900">Notificaciones</h1>
-                <p className="text-slate-500">Mantente al día con tus reportes</p>
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h1 className="text-2xl font-bold text-slate-900">Notificaciones</h1>
+                  <p className="text-slate-500">Mantente al día con tus reportes</p>
+                </div>
+                {notifications.length > 0 && (
+                  <div className="flex gap-2">
+                    {isNotifSelectionMode ? (
+                      <>
+                        <button 
+                          onClick={() => {
+                            setSelectedNotifications([]);
+                            setIsNotifSelectionMode(false);
+                          }}
+                          className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                        >
+                          Cancelar
+                        </button>
+                        <button 
+                          onClick={deleteMultipleNotifications}
+                          disabled={selectedNotifications.length === 0}
+                          className="px-4 py-2 bg-red-600 text-white text-sm font-bold rounded-xl shadow-lg shadow-red-100 transition-all disabled:opacity-50"
+                        >
+                          Eliminar ({selectedNotifications.length})
+                        </button>
+                      </>
+                    ) : (
+                      <button 
+                        onClick={() => setIsNotifSelectionMode(true)}
+                        className="px-4 py-2 text-sm font-bold text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                      >
+                        Seleccionar
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -1233,20 +1430,50 @@ export default function App() {
                     <div 
                       key={notif.id}
                       onClick={() => {
-                        markNotificationAsRead(notif.id);
-                        setActiveTab('incidents');
+                        if (isNotifSelectionMode) {
+                          setSelectedNotifications(prev => 
+                            prev.includes(notif.id) ? prev.filter(id => id !== notif.id) : [...prev, notif.id]
+                          );
+                        } else {
+                          markNotificationAsRead(notif.id);
+                          if (notif.incidentId) {
+                            setExpandedIncidentId(notif.incidentId);
+                            setActiveTab('incidents');
+                          } else {
+                            setActiveTab('incidents');
+                          }
+                        }
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setIsNotifSelectionMode(true);
+                        setSelectedNotifications(prev => [...prev, notif.id]);
                       }}
                       className={cn(
-                        "p-4 rounded-xl border transition-all cursor-pointer",
+                        "p-4 rounded-xl border transition-all cursor-pointer relative overflow-hidden",
+                        selectedNotifications.includes(notif.id) ? "border-indigo-600 ring-2 ring-indigo-100" : "border-slate-100",
                         notif.read 
-                          ? "bg-white border-slate-100 opacity-75" 
+                          ? "bg-white opacity-75" 
                           : "bg-indigo-50 border-indigo-100 shadow-sm"
                       )}
                     >
+                      {isNotifSelectionMode && (
+                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-600" />
+                      )}
                       <div className="flex justify-between items-start mb-1">
-                        <h3 className={cn("font-bold", notif.read ? "text-slate-700" : "text-indigo-900")}>
-                          {notif.title}
-                        </h3>
+                        <div className="flex items-center gap-2">
+                          {isNotifSelectionMode && (
+                            <div className={cn(
+                              "w-4 h-4 rounded border flex items-center justify-center transition-all",
+                              selectedNotifications.includes(notif.id) ? "bg-indigo-600 border-indigo-600" : "border-slate-300 bg-white"
+                            )}>
+                              {selectedNotifications.includes(notif.id) && <CheckCircle2 className="w-3 h-3 text-white" />}
+                            </div>
+                          )}
+                          <h3 className={cn("font-bold", notif.read ? "text-slate-700" : "text-indigo-900")}>
+                            {notif.title}
+                          </h3>
+                        </div>
                         <span className="text-[10px] text-slate-400 font-medium">
                           {format(notif.createdAt, "dd/MM HH:mm")}
                         </span>
@@ -1337,164 +1564,6 @@ export default function App() {
                   </button>
                 </div>
               </div>
-
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-6 border-b border-slate-100">
-                  <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                    <Send className="w-5 h-5 text-indigo-600" />
-                    Reenvío de Incidencias
-                  </h2>
-                  <p className="text-sm text-slate-500 mt-1">Permite que los coordinadores reenvíen incidencias a administradores específicos.</p>
-                </div>
-                <div className="p-6 space-y-6">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-slate-700">Habilitar reenvío</span>
-                    <button
-                      onClick={async () => {
-                        try {
-                          await setDoc(doc(db, 'settings', 'global'), {
-                            forwardingEnabled: !systemSettings.forwardingEnabled
-                          }, { merge: true });
-                        } catch (error) {
-                          console.error("Error updating forwarding settings:", error);
-                        }
-                      }}
-                      className={cn(
-                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2",
-                        systemSettings.forwardingEnabled ? "bg-indigo-600" : "bg-slate-200"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                          systemSettings.forwardingEnabled ? "translate-x-6" : "translate-x-1"
-                        )}
-                      />
-                    </button>
-                  </div>
-
-                  {systemSettings.forwardingEnabled && (
-                    <div className="pt-6 border-t border-slate-100">
-                      <h3 className="font-bold text-slate-900 mb-4">Mapeo de Coordinadores a Administradores</h3>
-                      
-                      <div className="flex flex-col sm:flex-row gap-4 mb-8 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                        <div className="flex-1">
-                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Administrador</label>
-                          <select 
-                            value={selectedMappingAdmin}
-                            onChange={(e) => setSelectedMappingAdmin(e.target.value)}
-                            className="w-full p-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 text-sm"
-                          >
-                            <option value="">Seleccionar Administrador</option>
-                            {admins.map(admin => (
-                              <option key={admin.uid} value={admin.uid}>{admin.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex-1">
-                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Coordinador</label>
-                          <select 
-                            value={selectedMappingCoordinator}
-                            onChange={(e) => setSelectedMappingCoordinator(e.target.value)}
-                            className="w-full p-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 text-sm"
-                          >
-                            <option value="">Seleccionar Coordinador</option>
-                            {coordinators.map(coord => (
-                              <option key={coord.uid} value={coord.uid}>{coord.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex items-end">
-                          <button
-                            onClick={async () => {
-                              if (!selectedMappingAdmin || !selectedMappingCoordinator) return;
-                              const currentMapping = systemSettings.coordinatorAdminMapping[selectedMappingCoordinator] || [];
-                              if (currentMapping.includes(selectedMappingAdmin)) return;
-                              
-                              try {
-                                await setDoc(doc(db, 'settings', 'global'), {
-                                  ...systemSettings,
-                                  coordinatorAdminMapping: {
-                                    ...systemSettings.coordinatorAdminMapping,
-                                    [selectedMappingCoordinator]: [...currentMapping, selectedMappingAdmin]
-                                  }
-                                }, { merge: true });
-                                
-                                setSelectedMappingAdmin('');
-                                setSelectedMappingCoordinator('');
-                              } catch (error) {
-                                console.error("Error linking coordinator to admin:", error);
-                              }
-                            }}
-                            disabled={!selectedMappingAdmin || !selectedMappingCoordinator}
-                            className="w-full sm:w-auto px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                          >
-                            Vincular
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        <h4 className="text-sm font-bold text-slate-700 mb-2">Vínculos Existentes</h4>
-                        {Object.entries(systemSettings.coordinatorAdminMapping).length === 0 ? (
-                          <p className="text-sm text-slate-400 italic">No hay vínculos configurados.</p>
-                        ) : (
-                          Object.entries(systemSettings.coordinatorAdminMapping).map(([coordId, adminIds]) => {
-                            const coordinator = coordinators.find(c => c.uid === coordId);
-                            if (!coordinator) return null;
-                            
-                            const ids = adminIds as string[];
-                            return ids.map(adminId => {
-                              const admin = admins.find(a => a.uid === adminId);
-                              if (!admin) return null;
-                              
-                              return (
-                                <div key={`${coordId}-${adminId}`} className="flex items-center justify-between p-3 bg-white rounded-lg border border-slate-100 shadow-sm">
-                                  <div className="flex items-center gap-3">
-                                    <div className="flex flex-col">
-                                      <span className="text-xs font-bold text-slate-400 uppercase">Coordinador</span>
-                                      <span className="font-bold text-slate-700">{coordinator.name}</span>
-                                    </div>
-                                    <ChevronRight className="w-4 h-4 text-slate-300" />
-                                    <div className="flex flex-col">
-                                      <span className="text-xs font-bold text-slate-400 uppercase">Administrador</span>
-                                      <span className="text-slate-600">{admin.name}</span>
-                                    </div>
-                                  </div>
-                                  <button
-                                    onClick={async () => {
-                                      try {
-                                        const newMapping = systemSettings.coordinatorAdminMapping[coordId].filter(id => id !== adminId);
-                                        const updatedMappings = { ...systemSettings.coordinatorAdminMapping };
-                                        if (newMapping.length === 0) {
-                                          delete updatedMappings[coordId];
-                                        } else {
-                                          updatedMappings[coordId] = newMapping;
-                                        }
-                                        
-                                        await setDoc(doc(db, 'settings', 'global'), {
-                                          ...systemSettings,
-                                          coordinatorAdminMapping: updatedMappings
-                                        }, { merge: true });
-                                      } catch (error) {
-                                        console.error("Error removing mapping:", error);
-                                      }
-                                    }}
-                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                    title="Eliminar vínculo"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              );
-                            });
-                          })
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -1582,48 +1651,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Global Confirmation Modal */}
-      <AnimatePresence>
-        {confirmModal.isOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6"
-            >
-              <div className="flex items-center gap-4 mb-4 text-red-600">
-                <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center">
-                  <AlertCircle className="w-6 h-6" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-900">{confirmModal.title}</h3>
-              </div>
-              <p className="text-slate-600 mb-8">{confirmModal.message}</p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
-                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={confirmModal.onConfirm}
-                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold shadow-lg shadow-red-100 transition-all"
-                >
-                  Eliminar
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </ErrorBoundary>
   );
 }
@@ -1655,14 +1682,29 @@ interface IncidentCardProps {
   onForward: (adminId: string) => void | Promise<void>;
   systemSettings: SystemSettings;
   admins: UserProfile[];
+  selectable?: boolean;
+  selected?: boolean;
+  onSelect?: (id: string) => void;
+  expandedIncidentId?: string | null;
 }
 
-const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkReceived, onUpdateStatus, onUpdateFollowUp, onDelete, onForward, systemSettings, admins }) => {
+const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkReceived, onUpdateStatus, onUpdateFollowUp, onDelete, onForward, systemSettings, admins, selectable, selected, onSelect, expandedIncidentId }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [isEditingFollowUp, setIsEditingFollowUp] = useState(false);
   const role = profile.role;
   const isSuperAdmin = profile.email === 'jorge.villanueva@boletomovil.com';
+
+  useEffect(() => {
+    if (expandedIncidentId === incident.id) {
+      setIsExpanded(true);
+      // Scroll into view if needed
+      const element = document.getElementById(`incident-${incident.id}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [expandedIncidentId, incident.id]);
 
   useEffect(() => {
     if (isExpanded && role === 'COORDINATOR' && !incident.isReceived && !isSuperAdmin) {
@@ -1706,12 +1748,33 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
   };
 
   return (
-    <div className={cn(
-      "bg-white rounded-2xl border border-slate-200 overflow-hidden transition-all duration-200",
-      !incident.isReceived && role === 'COORDINATOR' ? "border-l-4 border-l-indigo-600 shadow-md" : "hover:shadow-md"
-    )}>
-      <div className="p-5 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-        <div className="flex items-start justify-between gap-4">
+    <div 
+      id={`incident-${incident.id}`}
+      className={cn(
+        "bg-white rounded-2xl border transition-all duration-200",
+        selected ? "border-indigo-600 ring-2 ring-indigo-100 shadow-md" : "border-slate-200",
+        !incident.isReceived && role === 'COORDINATOR' ? "border-l-4 border-l-indigo-600 shadow-md" : "hover:shadow-md"
+      )}
+    >
+      <div className="flex items-stretch">
+        {selectable && (
+          <div 
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect?.(incident.id);
+            }}
+            className="flex items-center justify-center px-4 border-r border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors"
+          >
+            <div className={cn(
+              "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
+              selected ? "bg-indigo-600 border-indigo-600" : "border-slate-300 bg-white"
+            )}>
+              {selected && <CheckCircle2 className="w-4 h-4 text-white" />}
+            </div>
+          </div>
+        )}
+        <div className="flex-1 p-5 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+          <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
               <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">{incident.school}</span>
@@ -1757,6 +1820,7 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
           </div>
         </div>
       </div>
+    </div>
 
       <AnimatePresence>
         {isExpanded && (
@@ -1894,49 +1958,6 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
                 )}
               </div>
 
-              {(role === 'COORDINATOR' || isSuperAdmin) && systemSettings.forwardingEnabled && incident.status === 'EN_SEGUIMIENTO' && (
-                <div className="pt-4 border-t border-slate-200">
-                  <p className="text-xs font-bold text-slate-400 uppercase mb-2">Reenviar a Administrador:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {admins
-                      .filter(admin => systemSettings.coordinatorAdminMapping[profile.uid]?.includes(admin.uid))
-                      .map(admin => {
-                        const isForwarded = incident.forwardedTo?.includes(admin.uid);
-                        return (
-                          <button
-                            key={admin.uid}
-                            disabled={isForwarded}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onForward(admin.uid);
-                            }}
-                            className={cn(
-                              "px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-all",
-                              isForwarded 
-                                ? "bg-emerald-50 text-emerald-600 border border-emerald-100" 
-                                : "bg-white border border-slate-200 text-slate-700 hover:border-indigo-600 hover:text-indigo-600"
-                            )}
-                          >
-                            {isForwarded ? (
-                              <>
-                                <CheckCircle2 className="w-3 h-3" />
-                                Enviado a {admin.name}
-                              </>
-                            ) : (
-                              <>
-                                <Send className="w-3 h-3" />
-                                {admin.name}
-                              </>
-                            )}
-                          </button>
-                        );
-                      })}
-                    {(!systemSettings.coordinatorAdminMapping[profile.uid] || systemSettings.coordinatorAdminMapping[profile.uid].length === 0) && (
-                      <p className="text-[10px] text-slate-400 italic">No tienes administradores vinculados para reenvío.</p>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
           </motion.div>
         )}

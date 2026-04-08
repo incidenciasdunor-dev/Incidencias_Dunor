@@ -1,5 +1,5 @@
 {
-  "name": "Diario",
-  "description": "Un sistema de reporte y gestión de incidencias escolares para coordinadores y docentes.",
+  "name": "DUNOR",
+  "description": "Sistema de reporte y gestión de incidencias escolares DUNOR.",
   "requestFramePermissions": []
 }
