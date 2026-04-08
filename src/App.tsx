@@ -104,9 +104,13 @@ class ErrorBoundary extends (Component as any) {
         const parsed = JSON.parse(error?.message || "");
         if (parsed.error && parsed.error.includes("insufficient permissions")) {
           errorMessage = "No tienes permisos suficientes para realizar esta acción.";
+        } else if (parsed.error) {
+          errorMessage = parsed.error;
         }
       } catch (e) {
-        // Not a JSON error
+        if (error?.message) {
+          errorMessage = error.message;
+        }
       }
 
       return (
@@ -493,7 +497,7 @@ export default function App() {
   const [selectedMappingAdmin, setSelectedMappingAdmin] = useState('');
   const [selectedMappingCoordinator, setSelectedMappingCoordinator] = useState('');
 
-  const isSuperAdmin = profile?.email === 'jorge.villanueva@boletomovil.com';
+  const isSuperAdmin = profile?.email?.toLowerCase() === 'jorge.villanueva@boletomovil.com';
 
   useEffect(() => {
     if (!user) {
@@ -676,6 +680,8 @@ export default function App() {
       }
       
       setIncidents(docs);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'incidents');
     });
 
     return () => unsubscribe();
