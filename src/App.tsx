@@ -137,11 +137,7 @@ class ErrorBoundary extends (Component as any) {
 
 const LoadingScreen = () => (
   <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
-    <motion.div
-      animate={{ rotate: 360 }}
-      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-      className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full"
-    />
+    <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
     <p className="mt-4 text-slate-600 font-medium">Cargando aplicación...</p>
   </div>
 );
@@ -778,22 +774,26 @@ export default function App() {
     }
   }, [user, profile, isProfileLoading]);
 
-  if (loading || (user && !hasCheckedProfile)) return <LoadingScreen />;
-  if (!user) return <LoginScreen />;
+  if (loading || (user && user.email && !hasCheckedProfile)) return <LoadingScreen />;
+  
+  if (!user) return <ErrorBoundary><LoginScreen /></ErrorBoundary>;
+  
   if (!profile) return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 p-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 text-center">
-        <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-        <h2 className="text-2xl font-bold text-slate-900 mb-2">Acceso No Autorizado</h2>
-        <p className="text-slate-600 mb-6">Tu correo no está registrado en el sistema o no tienes un perfil asignado. Contacta a tu administrador.</p>
-        <button
-          onClick={() => signOut(auth)}
-          className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-all"
-        >
-          Cerrar sesión
-        </button>
+    <ErrorBoundary>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 p-4">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 text-center">
+          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">Acceso No Autorizado</h2>
+          <p className="text-slate-600 mb-6">Tu correo no está registrado en el sistema o no tienes un perfil asignado. Contacta a tu administrador.</p>
+          <button
+            onClick={() => signOut(auth)}
+            className="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-all"
+          >
+            Cerrar sesión
+          </button>
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 
   const handleLogout = () => signOut(auth);
