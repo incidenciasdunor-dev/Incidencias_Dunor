@@ -5,10 +5,10 @@
 
 import React, { useState, useEffect, Component, ReactNode } from 'react';
 import { auth, db } from './lib/firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, confirmPasswordReset, verifyPasswordResetCode, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, collectionGroup, arrayUnion, limit, writeBatch } from 'firebase/firestore';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { Plus, LogOut, UserPlus, Users, ClipboardList, CheckCircle2, AlertCircle, ChevronRight, Menu, X, Trash2, Edit2, Phone, Mail, User as UserIcon, School, Lock, Eye, EyeOff, Image as ImageIcon, History, Send, Settings } from 'lucide-react';
+import { Plus, LogOut, UserPlus, Users, ClipboardList, CheckCircle2, AlertCircle, ChevronRight, ChevronLeft, Menu, X, Trash2, Edit2, Phone, Mail, User as UserIcon, School, Lock, Eye, EyeOff, Image as ImageIcon, History, Send, Settings } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from './lib/utils';
 import { UserProfile, Incident, UserRole, IncidentStatus, FollowUpComment, SystemSettings } from './types';
@@ -16,7 +16,7 @@ import { motion, AnimatePresence } from 'motion/react';
 
 const Logo = ({ className, short = false }: { className?: string, short?: boolean }) => (
   <svg 
-    viewBox={short ? "0 0 120 100" : "0 0 400 100"} 
+    viewBox={short ? "0 0 120 100" : "0 0 550 100"} 
     className={className}
     fill="currentColor"
     xmlns="http://www.w3.org/2000/svg"
@@ -26,11 +26,11 @@ const Logo = ({ className, short = false }: { className?: string, short?: boolea
       y="50%" 
       textAnchor="middle" 
       dominantBaseline="central" 
-      fontSize={short ? "65" : "38"} 
+      fontSize={short ? "85" : "42"} 
       fontWeight="900" 
       fontFamily="sans-serif"
     >
-      {short ? "D" : "DUNOR"}
+      {short ? "D" : "Diario del Docente"}
     </text>
   </svg>
 );
@@ -147,12 +147,26 @@ const LoginScreen = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [step, setStep] = useState<'email' | 'login' | 'register'>('email');
+  const [step, setStep] = useState<'email' | 'login' | 'register' | 'reset-password'>('email');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preProfile, setPreProfile] = useState<UserProfile | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const [oobCode, setOobCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const mode = urlParams.get('mode');
+    const code = urlParams.get('oobCode');
+
+    if (mode === 'resetPassword' && code) {
+      setOobCode(code);
+      setStep('reset-password');
+      // Clean up URL without refreshing
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
 
   const checkEmail = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -210,12 +224,23 @@ const LoginScreen = () => {
     setLoading(true);
     setError(null);
     try {
-      await sendPasswordResetEmail(auth, email.toLowerCase().trim());
+      const actionCodeSettings = {
+        url: window.location.origin,
+        handleCodeInApp: true,
+      };
+      await sendPasswordResetEmail(auth, email.toLowerCase().trim(), actionCodeSettings);
       setResetSent(true);
       setError(null);
     } catch (err: any) {
       console.error(err);
-      setError("Error al enviar el correo de recuperación. Verifica que el correo sea correcto.");
+      // Fallback if actionCodeSettings fails (e.g. domain not allowlisted)
+      try {
+        await sendPasswordResetEmail(auth, email.toLowerCase().trim());
+        setResetSent(true);
+        setError(null);
+      } catch (fallbackErr: any) {
+        setError("Error al enviar el correo de recuperación. Verifica que el correo sea correcto.");
+      }
     } finally {
       setLoading(false);
     }
@@ -279,6 +304,34 @@ const LoginScreen = () => {
       } else {
         setError("Error al registrar la contraseña: " + (err.message || "Error desconocido"));
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!oobCode) return;
+    if (password !== confirmPassword) {
+      setError("Las contraseñas no coinciden.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("La contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      await confirmPasswordReset(auth, oobCode, password);
+      setError(null);
+      setResetSent(false);
+      setStep('email');
+      alert("Contraseña actualizada con éxito. Ahora puedes iniciar sesión.");
+    } catch (err: any) {
+      console.error(err);
+      setError("Error al restablecer la contraseña. El enlace puede haber expirado.");
     } finally {
       setLoading(false);
     }
@@ -438,6 +491,57 @@ const LoginScreen = () => {
               className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-100 transition-all disabled:opacity-50"
             >
               {loading ? 'Configurando...' : 'Establecer Contraseña'}
+            </button>
+          </form>
+        )}
+
+        {step === 'reset-password' && (
+          <form onSubmit={handleResetPassword} className="space-y-4">
+            <div className="mb-6">
+              <h2 className="text-xl font-bold text-slate-900 mb-2">Restablecer Contraseña</h2>
+              <p className="text-sm text-slate-600 leading-relaxed">
+                Ingresa tu nueva contraseña a continuación.
+              </p>
+            </div>
+            <InputGroup label="Nueva Contraseña">
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input
+                  required
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-12 py-3 focus:ring-2 focus:ring-indigo-500 transition-all"
+                  placeholder="Mínimo 6 caracteres"
+                />
+              </div>
+            </InputGroup>
+            <InputGroup label="Confirmar Contraseña">
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input
+                  required
+                  type={showPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-12 py-3 focus:ring-2 focus:ring-indigo-500 transition-all"
+                  placeholder="Repite tu contraseña"
+                />
+              </div>
+            </InputGroup>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-100 transition-all disabled:opacity-50"
+            >
+              {loading ? 'Restableciendo...' : 'Actualizar Contraseña'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep('email')}
+              className="w-full text-sm text-slate-500 font-bold hover:underline"
+            >
+              Volver al inicio
             </button>
           </form>
         )}
@@ -1145,12 +1249,12 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
       <div className="md:hidden bg-white border-b border-slate-200 p-4 flex items-center justify-between sticky top-0 z-50">
         <button 
           onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
-          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+          className="flex flex-col items-center gap-1 hover:opacity-80 transition-opacity"
         >
           <div className="w-auto h-8 flex items-center justify-center rounded-lg bg-white shadow-sm border border-slate-100 px-2 text-blue-700">
             <Logo className="h-full" short />
           </div>
-          <span className="font-bold text-slate-900">DUNOR</span>
+          <span className="text-[10px] leading-none font-bold text-slate-900">DUNOR</span>
         </button>
         <div className="flex items-center gap-2">
           {/* Notifications or other mobile header actions could go here */}
@@ -1181,17 +1285,17 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
                 !isSidebarOpen && "hidden md:block"
               )}
             >
-              <div className="p-6 flex flex-col h-full overflow-y-auto">
-                <div className="flex items-center justify-between mb-10">
-                  <div className="flex items-center gap-3">
-                    <div className="w-auto h-10 flex items-center justify-center rounded-lg bg-white shadow-sm border border-slate-100 px-3 py-1 text-blue-700">
+              <div 
+                onClick={() => setIsSidebarOpen(false)}
+                className="p-6 flex flex-col h-full overflow-y-auto scrollbar-hide [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] cursor-pointer"
+              >
+                <div className="flex items-center justify-center mb-10">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-auto h-12 flex items-center justify-center rounded-lg bg-white shadow-sm border border-slate-100 px-4 py-1 text-blue-700">
                       <Logo className="h-full" />
                     </div>
-                    <span className="text-xl font-bold text-slate-900 tracking-tight">DUNOR</span>
+                    <span className="text-lg font-bold text-slate-900 tracking-widest">DUNOR</span>
                   </div>
-                  <button onClick={() => setIsSidebarOpen(false)} className="md:hidden p-2 text-slate-400">
-                    <X className="w-6 h-6" />
-                  </button>
                 </div>
 
                 <div className="space-y-1 flex-1">
