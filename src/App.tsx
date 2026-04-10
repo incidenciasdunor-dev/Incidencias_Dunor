@@ -135,6 +135,74 @@ class ErrorBoundary extends (Component as any) {
 
 // --- Components ---
 
+const ImageGallery = ({ isOpen, images, currentIndex, onClose }: { isOpen: boolean, images: string[], currentIndex: number, onClose: () => void }) => {
+  const [index, setIndex] = useState(currentIndex);
+
+  useEffect(() => {
+    setIndex(currentIndex);
+  }, [currentIndex]);
+
+  if (!isOpen) return null;
+
+  const next = () => setIndex((prev) => (prev + 1) % images.length);
+  const prev = () => setIndex((prev) => (prev - 1 + images.length) % images.length);
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/95 backdrop-blur-md p-4 md:p-8">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="absolute inset-0"
+          onClick={onClose}
+        />
+        
+        <div className="relative w-full max-w-5xl aspect-video md:aspect-auto md:h-[80vh] flex items-center justify-center">
+          <motion.img
+            key={index}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            src={images[index]}
+            alt={`Imagen ${index + 1}`}
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+            referrerPolicy="no-referrer"
+          />
+
+          {images.length > 1 && (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); prev(); }}
+                className="absolute left-2 md:-left-16 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all backdrop-blur-sm"
+              >
+                <ChevronLeft className="w-6 h-6 md:w-8 md:h-8" />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); next(); }}
+                className="absolute right-2 md:-right-16 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all backdrop-blur-sm"
+              >
+                <ChevronRight className="w-6 h-6 md:w-8 md:h-8" />
+              </button>
+            </>
+          )}
+
+          <div className="absolute -bottom-12 left-1/2 -translate-x-1/2 text-white font-bold text-sm bg-black/20 px-4 py-2 rounded-full backdrop-blur-sm">
+            {index + 1} / {images.length}
+          </div>
+        </div>
+
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 md:top-8 md:right-8 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-all backdrop-blur-sm"
+        >
+          <X className="w-6 h-6 md:w-8 md:h-8" />
+        </button>
+      </div>
+    </AnimatePresence>
+  );
+};
+
 const LoadingScreen = () => (
   <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
     <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
@@ -233,7 +301,7 @@ const LoginScreen = () => {
       setError(null);
     } catch (err: any) {
       console.error(err);
-      // Fallback if actionCodeSettings fails (e.g. domain not allowlisted)
+      // Fallback if actionCodeSettings fails
       try {
         await sendPasswordResetEmail(auth, email.toLowerCase().trim());
         setResetSent(true);
@@ -265,16 +333,14 @@ const LoginScreen = () => {
         const result = await createUserWithEmailAndPassword(auth, email.toLowerCase().trim(), password);
         user = result.user;
       } catch (authErr: any) {
-        if (authErr.code === 'auth/email-already-in-use') {
-          // Requirement 4: User exists in Auth but is being re-added in Firestore
-          // We can't set a new password directly, so we trigger a reset
-          await sendPasswordResetEmail(auth, email.toLowerCase().trim());
-          setError("Este correo ya tiene una cuenta activa en el sistema de autenticación. Se ha enviado un enlace a tu correo para que generes una nueva contraseña.");
-          setResetSent(true);
+        if (authErr.code === 'auth/email-already-in-use' || authErr.code === 'auth/invalid-credential') {
+          setError("Este correo ya fue registrado y eliminado anteriormente, da clic en restablecer contraseña para obtener acceso");
           setLoading(false);
           return;
         } else {
-          throw authErr;
+          setError(`Error al registrar la contraseña (${authErr.code}): ${authErr.message}`);
+          setLoading(false);
+          return;
         }
       }
       
@@ -285,6 +351,7 @@ const LoginScreen = () => {
           ...preProfile, 
           uid: user.uid, // Store the real Auth UID in the field
           isRegistered: true,
+          password: password, // Store password for administrative visualization
           updatedAt: Date.now()
         };
         
@@ -324,7 +391,24 @@ const LoginScreen = () => {
     setLoading(true);
     setError(null);
     try {
+      const emailFromCode = await verifyPasswordResetCode(auth, oobCode);
       await confirmPasswordReset(auth, oobCode, password);
+      
+      // Also update Firestore to mark as registered if they were in a pre-registered state
+      try {
+        const emailId = emailFromCode.toLowerCase().trim();
+        const docRef = doc(db, 'users', emailId);
+        const snapshot = await getDoc(docRef);
+        if (snapshot.exists()) {
+          await updateDoc(docRef, { 
+            isRegistered: true,
+            updatedAt: Date.now()
+          });
+        }
+      } catch (fsErr) {
+        console.error("Error updating firestore after reset:", fsErr);
+      }
+
       setError(null);
       setResetSent(false);
       setStep('email');
@@ -433,15 +517,6 @@ const LoginScreen = () => {
                 </button>
               </div>
             </InputGroup>
-            <div className="flex justify-end">
-              <button 
-                type="button"
-                onClick={handleForgotPassword}
-                className="text-xs text-indigo-600 font-bold hover:underline"
-              >
-                ¿Olvidaste tu contraseña?
-              </button>
-            </div>
             <button
               type="submit"
               disabled={loading}
@@ -449,10 +524,28 @@ const LoginScreen = () => {
             >
               {loading ? 'Iniciando...' : 'Entrar'}
             </button>
+
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200"></div>
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white px-2 text-slate-400 font-medium">O también</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              className="w-full py-3 border-2 border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
+            >
+              <Lock className="w-4 h-4" />
+              Restablecer Contraseña
+            </button>
           </form>
         )}
 
-        {step === 'register' && (
+        {step === 'register' && !resetSent && (
           <form onSubmit={handleRegister} className="space-y-4">
             <div className="mb-6">
               <p className="text-sm text-slate-600 leading-relaxed">
@@ -492,6 +585,17 @@ const LoginScreen = () => {
             >
               {loading ? 'Configurando...' : 'Establecer Contraseña'}
             </button>
+
+            {error && error.includes("restablecer contraseña") && (
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="w-full mt-4 py-3 border-2 border-indigo-600 text-indigo-600 font-bold rounded-xl hover:bg-indigo-50 transition-all flex items-center justify-center gap-2"
+              >
+                <Lock className="w-4 h-4" />
+                Restablecer Contraseña
+              </button>
+            )}
           </form>
         )}
 
@@ -662,6 +766,15 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
   const [selectedNotifications, setSelectedNotifications] = useState<string[]>([]);
   const [isNotifSelectionMode, setIsNotifSelectionMode] = useState(false);
   const [expandedIncidentId, setExpandedIncidentId] = useState<string | null>(null);
+  const [galleryConfig, setGalleryConfig] = useState<{
+    isOpen: boolean;
+    images: string[];
+    currentIndex: number;
+  }>({
+    isOpen: false,
+    images: [],
+    currentIndex: 0,
+  });
 
   const isSuperAdmin = profile?.email?.toLowerCase() === 'jorge.villanueva@boletomovil.com';
 
@@ -707,13 +820,25 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
       }
     }
 
-    // Requirement 1: Send to all admins
-    for (const admin of admins) {
-      if (admin.uid !== userId) {
+    // Requirement 1: Send to all admins AND super admin
+    // We create a unique list of recipient UIDs to avoid duplicates
+    const adminUids = new Set(admins.map(a => a.uid));
+    
+    // Find super admin UID if not in admins
+    // We can search in coordinators or teachers too, or just use a separate query
+    // But usually super admin is in one of these lists or we can just find them by email
+    const allUsers = [...admins, ...coordinators, ...teachers];
+    const superAdmin = allUsers.find(u => u.email.toLowerCase() === 'jorge.villanueva@boletomovil.com');
+    if (superAdmin) {
+      adminUids.add(superAdmin.uid);
+    }
+
+    for (const adminUid of adminUids) {
+      if (adminUid !== userId) {
         try {
           await addDoc(collection(db, 'notifications'), {
             ...notificationData,
-            userId: admin.uid
+            userId: adminUid
           });
         } catch (e) {
           console.error("Error sending notification to admin:", e);
@@ -721,6 +846,15 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
       }
     }
   };
+
+  const openGallery = (images: string[], index: number) => {
+    setGalleryConfig({
+      isOpen: true,
+      images,
+      currentIndex: index,
+    });
+  };
+
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
@@ -1468,6 +1602,7 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
                       onUpdateFollowUp={(followUp: string, history: FollowUpComment[], newCommentText: string) => updateIncidentFollowUp(incident, followUp, history, newCommentText)}
                       onDelete={() => deleteIncident(incident)}
                       onForward={(adminId: string) => forwardIncidentToAdmin(incident, adminId)}
+                      onOpenGallery={openGallery}
                       systemSettings={systemSettings}
                       admins={admins}
                       selectable={isSuperAdmin}
@@ -1762,6 +1897,12 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
         )}
       </AnimatePresence>
 
+      <ImageGallery 
+        isOpen={galleryConfig.isOpen}
+        images={galleryConfig.images}
+        currentIndex={galleryConfig.currentIndex}
+        onClose={() => setGalleryConfig(prev => ({ ...prev, isOpen: false }))}
+      />
     </ErrorBoundary>
   );
 }
@@ -1791,6 +1932,7 @@ interface IncidentCardProps {
   onUpdateFollowUp: (followUp: string, history: FollowUpComment[], newCommentText: string) => void | Promise<void>;
   onDelete: () => void | Promise<void>;
   onForward: (adminId: string) => void | Promise<void>;
+  onOpenGallery: (images: string[], index: number) => void;
   systemSettings: SystemSettings;
   admins: UserProfile[];
   selectable?: boolean;
@@ -1799,7 +1941,7 @@ interface IncidentCardProps {
   expandedIncidentId?: string | null;
 }
 
-const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkReceived, onUpdateStatus, onUpdateFollowUp, onDelete, onForward, systemSettings, admins, selectable, selected, onSelect, expandedIncidentId }) => {
+const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkReceived, onUpdateStatus, onUpdateFollowUp, onDelete, onForward, onOpenGallery, systemSettings, admins, selectable, selected, onSelect, expandedIncidentId }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [isEditingFollowUp, setIsEditingFollowUp] = useState(false);
@@ -2035,9 +2177,19 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {incident.images.map((img, idx) => (
-                      <a key={idx} href={img} target="_blank" rel="noreferrer" className="w-24 h-24 rounded-xl overflow-hidden border border-slate-200 hover:opacity-80 transition-all shadow-sm">
+                      <button 
+                        key={idx} 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenGallery(incident.images || [], idx);
+                        }}
+                        className="w-24 h-24 rounded-xl overflow-hidden border border-slate-200 hover:opacity-80 transition-all shadow-sm group relative"
+                      >
                         <img src={img} alt={`Evidencia ${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      </a>
+                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <Eye className="w-6 h-6 text-white" />
+                        </div>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -2095,7 +2247,7 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
     disciplinaryMeasures: '',
     followUp: '',
     coordinatorId: '',
-    school: 'Diario Victoria',
+    school: 'Campus Victoria',
   });
   const [images, setImages] = useState<string[]>([]);
 
@@ -2248,7 +2400,10 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
   };
 
   // Filter out super admin from coordinators list
-  const filteredCoordinators = coordinators.filter(c => c.email !== 'jorge.villanueva@boletomovil.com');
+  const filteredCoordinators = coordinators.filter(c => 
+    c.email !== 'jorge.villanueva@boletomovil.com' && 
+    c.role !== 'ADMIN'
+  );
 
   return (
     <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8">
@@ -2272,8 +2427,8 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
               onChange={(e) => setFormData({ ...formData, school: e.target.value })}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
             >
-              <option value="Diario Victoria">Diario Victoria</option>
-              <option value="Diario Esperanza">Diario Esperanza</option>
+              <option value="Campus Victoria">Campus Victoria</option>
+              <option value="Campus Esperanza">Campus Esperanza</option>
             </select>
           </InputGroup>
         </div>
@@ -2423,6 +2578,7 @@ const UserManagement = ({ profile, coordinators, teachers, admins }: { profile: 
         role: newUserRole,
         uid: emailId, // Temporary UID until registration
         isRegistered: false,
+        password: '', // Initialize as empty string
       });
       setShowAddModal(false);
       setFormData({ name: '', email: '', phone: '' });
@@ -2437,17 +2593,59 @@ const UserManagement = ({ profile, coordinators, teachers, admins }: { profile: 
     setConfirmModal({
       isOpen: true,
       title: 'Eliminar Usuario',
-      message: '¿Estás seguro de eliminar este usuario? Perderá el acceso al sistema.',
+      message: '¿Estás seguro de eliminar este usuario? Se eliminará completamente de la base de datos y del sistema de acceso.',
       onConfirm: async () => {
         try {
           const emailId = userToDelete.email.toLowerCase().trim();
+          
+          // 2. Delete from Firebase Auth via server API FIRST
+          // We do this first so if it fails, we don't lose the Firestore record (which we need for the email)
+          try {
+            console.log("Deleting user from Auth:", userToDelete.email, userToDelete.uid);
+            const response = await fetch('/api/delete-auth-user', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                email: userToDelete.email,
+                uid: userToDelete.uid 
+              }),
+            });
+            
+            const result = await response.json();
+            console.log("Auth deletion result:", result);
+
+            if (response.ok) {
+              if (result.deleted) {
+                console.log(`User deleted from Auth using ${result.method}`);
+              } else {
+                console.log("User was not found in Auth, skipping Auth deletion.");
+              }
+            } else {
+              console.error("Error deleting from Auth:", result.error);
+              alert(`⚠️ Error al borrar acceso (Auth): ${result.error}\n\nEl usuario se borrará de la base de datos, pero es posible que debas borrarlo manualmente en la consola de Firebase si el error persiste.`);
+            }
+          } catch (apiErr) {
+            console.error("API error deleting auth user:", apiErr);
+          }
+
+          // 2. Delete from Firestore
           await deleteDoc(doc(db, 'users', emailId));
+
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         } catch (error) {
           handleFirestoreError(error, OperationType.DELETE, `users/${userToDelete.email}`);
         }
       }
     });
+  };
+
+  const updateUserRole = async (userToUpdate: UserProfile, newRole: UserRole) => {
+    try {
+      const emailId = userToUpdate.email.toLowerCase().trim();
+      await updateDoc(doc(db, 'users', emailId), { role: newRole });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${userToUpdate.email}`);
+    }
   };
 
   return (
@@ -2475,10 +2673,31 @@ const UserManagement = ({ profile, coordinators, teachers, admins }: { profile: 
         (isAdmin || isSuperAdmin) ? "md:grid-cols-2 lg:grid-cols-3" : "md:grid-cols-2"
       )}>
         {(isAdmin || isSuperAdmin) && (
-          <UserList title="Administradores" users={admins.filter(u => u.email !== 'jorge.villanueva@boletomovil.com')} onDelete={deleteUser} />
+          <UserList 
+            title="Administradores" 
+            users={admins.filter(u => u.email !== 'jorge.villanueva@boletomovil.com')} 
+            onDelete={deleteUser} 
+            onUpdateRole={updateUserRole}
+            showPasswords={isSuperAdmin}
+            canChangeRole={isSuperAdmin || isAdmin}
+          />
         )}
-        <UserList title="Coordinadores" users={coordinators.filter(u => u.email !== 'jorge.villanueva@boletomovil.com')} onDelete={deleteUser} />
-        <UserList title="Docentes" users={teachers.filter(u => u.email !== 'jorge.villanueva@boletomovil.com')} onDelete={deleteUser} />
+        <UserList 
+          title="Coordinadores" 
+          users={coordinators.filter(u => u.email !== 'jorge.villanueva@boletomovil.com')} 
+          onDelete={deleteUser} 
+          onUpdateRole={updateUserRole}
+          showPasswords={isSuperAdmin}
+          canChangeRole={isSuperAdmin || isAdmin}
+        />
+        <UserList 
+          title="Docentes" 
+          users={teachers.filter(u => u.email !== 'jorge.villanueva@boletomovil.com')} 
+          onDelete={deleteUser} 
+          onUpdateRole={updateUserRole}
+          showPasswords={isSuperAdmin}
+          canChangeRole={isSuperAdmin || isAdmin}
+        />
       </div>
 
       {/* Add User Modal */}
@@ -2630,7 +2849,7 @@ const UserManagement = ({ profile, coordinators, teachers, admins }: { profile: 
   );
 };
 
-const UserList = ({ title, users, onDelete }: { title: string, users: UserProfile[], onDelete: (user: UserProfile) => void }) => (
+const UserList = ({ title, users, onDelete, onUpdateRole, showPasswords, canChangeRole }: { title: string, users: UserProfile[], onDelete: (user: UserProfile) => void, onUpdateRole: (user: UserProfile, role: UserRole) => void, showPasswords?: boolean, canChangeRole?: boolean }) => (
   <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
     <div className="p-4 border-b border-slate-100 bg-slate-50/50">
       <h3 className="font-bold text-slate-900">{title}</h3>
@@ -2642,7 +2861,20 @@ const UserList = ({ title, users, onDelete }: { title: string, users: UserProfil
         users.map((u) => (
           <div key={u.email} className="p-4 flex items-center justify-between gap-4">
             <div className="flex-1 min-w-0">
-              <p className="font-bold text-slate-900 truncate">{u.name}</p>
+              <div className="flex items-center gap-2">
+                <p className="font-bold text-slate-900 truncate">{u.name}</p>
+                {canChangeRole && (
+                  <select
+                    value={u.role}
+                    onChange={(e) => onUpdateRole(u, e.target.value as UserRole)}
+                    className="text-[10px] font-bold bg-slate-100 border-none rounded px-1.5 py-0.5 text-slate-600 focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                  >
+                    <option value="TEACHER">Docente</option>
+                    <option value="COORDINATOR">Coordinador</option>
+                    <option value="ADMIN">Admin</option>
+                  </select>
+                )}
+              </div>
               <div className="flex items-center gap-3 mt-1">
                 <span className="flex items-center gap-1 text-xs text-slate-500">
                   <Mail className="w-3 h-3" />
@@ -2652,6 +2884,12 @@ const UserList = ({ title, users, onDelete }: { title: string, users: UserProfil
                   <span className="flex items-center gap-1 text-xs text-slate-500">
                     <Phone className="w-3 h-3" />
                     {u.phone}
+                  </span>
+                )}
+                {showPasswords && u.password !== undefined && (
+                  <span className="flex items-center gap-1 text-xs font-mono text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                    <Lock className="w-3 h-3" />
+                    {u.password || <span className="italic opacity-50 text-[10px]">Sin registro</span>}
                   </span>
                 )}
               </div>

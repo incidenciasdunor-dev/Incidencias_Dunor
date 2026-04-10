@@ -15,6 +15,7 @@ export interface UserProfile {
   role: UserRole;
   assignedCoordinatorId?: string;
   isRegistered?: boolean;
+  password?: string;
 }
 
 export interface SystemSettings {
