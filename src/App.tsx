@@ -650,6 +650,7 @@ const LoginScreen = () => {
           </form>
         )}
       </motion.div>
+      <p className="mt-8 text-xs text-slate-400 font-medium">Developed By JV v 1.0</p>
     </div>
   );
 };
@@ -1498,6 +1499,7 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
                   <LogOut className="w-5 h-5" />
                   <span className="font-bold">Cerrar sesión</span>
                 </button>
+                <p className="text-[10px] text-slate-400 text-center pb-2">v 1.0</p>
               </div>
             </div>
           </motion.aside>
