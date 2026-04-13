@@ -43,6 +43,7 @@ export interface Incident {
   readAt?: number;
   receivedByName?: string;
   images?: string[];
+  categories?: string[];
   deletedByCoordinators?: string[];
   forwardedTo?: string[];
   createdAt: number;

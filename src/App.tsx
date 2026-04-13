@@ -8,7 +8,7 @@ import { auth, db } from './lib/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, confirmPasswordReset, verifyPasswordResetCode, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, collectionGroup, arrayUnion, limit, writeBatch } from 'firebase/firestore';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { Plus, LogOut, UserPlus, Users, ClipboardList, CheckCircle2, AlertCircle, ChevronRight, ChevronLeft, Menu, X, Trash2, Edit2, Phone, Mail, User as UserIcon, School, Lock, Eye, EyeOff, Image as ImageIcon, History, Send, Settings } from 'lucide-react';
+import { Plus, LogOut, UserPlus, Users, ClipboardList, CheckCircle2, AlertCircle, ChevronRight, ChevronLeft, Menu, X, Trash2, Edit2, Phone, Mail, User as UserIcon, School, Lock, Eye, EyeOff, Image as ImageIcon, History, Send, Settings, Printer } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from './lib/utils';
 import { UserProfile, Incident, UserRole, IncidentStatus, FollowUpComment, SystemSettings } from './types';
@@ -134,6 +134,467 @@ class ErrorBoundary extends (Component as any) {
 }
 
 // --- Components ---
+
+const PrintPreview = ({ incident, onClose }: { incident: Incident, onClose: () => void }) => {
+  const handlePrint = () => {
+    const printContent = document.getElementById('printable-report');
+    if (!printContent) return;
+    
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Reporte de Incidencia - ${incident.date}</title>
+          <style>
+            body { 
+              font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+              color: #1e293b; 
+              line-height: 1.6; 
+              margin: 0;
+              padding: 1.5cm;
+            }
+            .header { 
+              display: flex;
+              flex-direction: row;
+              align-items: center;
+              justify-content: space-between;
+              border-bottom: 3px solid #4f46e5; 
+              padding-bottom: 20px; 
+              margin-bottom: 30px; 
+              text-align: right;
+            }
+            .logo-container {
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              margin-bottom: 0;
+            }
+            .header-logo {
+              height: 70px;
+              width: auto;
+              margin-bottom: 4px;
+            }
+            .logo-text {
+              font-weight: 900;
+              font-size: 14px;
+              letter-spacing: 0.3em;
+              color: #1e293b;
+              margin-top: -5px;
+            }
+            .header h1 { 
+              margin: 10px 0 0 0; 
+              color: #1e293b; 
+              font-size: 18px;
+              text-transform: uppercase;
+              letter-spacing: 0.05em;
+            }
+            .header p { 
+              margin: 2px 0 0 0; 
+              color: #64748b; 
+              font-weight: 700;
+              font-size: 11px;
+            }
+            .section { 
+              margin-bottom: 20px; 
+              page-break-inside: avoid;
+            }
+            .section-title { 
+              border-bottom: 1px solid #e2e8f0; 
+              padding-bottom: 4px; 
+              margin-bottom: 10px; 
+              color: #4f46e5; 
+              text-transform: uppercase; 
+              font-size: 10px; 
+              font-weight: 800;
+              letter-spacing: 0.05em;
+            }
+            .info-grid { 
+              display: grid; 
+              grid-template-columns: 1fr 1fr; 
+              gap: 12px; 
+              background: #f8fafc;
+              padding: 15px;
+              border-radius: 10px;
+              border: 1px solid #e2e8f0;
+            }
+            .info-item { display: flex; flex-direction: column; }
+            .label { 
+              font-weight: 800; 
+              color: #64748b; 
+              font-size: 9px; 
+              text-transform: uppercase; 
+              margin-bottom: 2px;
+            }
+            .content { 
+              font-size: 12px; 
+              color: #334155;
+              font-weight: 600;
+            }
+            .categories-container { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+            .category-tag {
+              background: #e0e7ff;
+              color: #4338ca;
+              padding: 2px 10px;
+              border-radius: 9999px;
+              font-size: 9px;
+              font-weight: 800;
+            }
+            .main-description {
+              background: #f8fafc;
+              padding: 12px;
+              border-left: 3px solid #4f46e5;
+              font-size: 12px;
+              white-space: pre-wrap;
+              border-radius: 0 8px 8px 0;
+            }
+            .comment { 
+              background: #f8fafc; 
+              padding: 10px; 
+              border-radius: 8px; 
+              margin-bottom: 10px; 
+              border: 1px solid #e2e8f0; 
+            }
+            .comment-header {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 4px;
+              border-bottom: 1px dashed #cbd5e1;
+              padding-bottom: 2px;
+            }
+            .comment-author { font-weight: 700; font-size: 10px; }
+            .comment-date { font-size: 9px; color: #94a3b8; }
+            .comment-body { margin: 0; font-size: 11px; color: #475569; }
+            .images-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              margin-top: 10px;
+            }
+            .images-grid img {
+              width: 100%;
+              height: 180px;
+              object-fit: cover;
+              border-radius: 8px;
+              border: 1px solid #e2e8f0;
+            }
+            .footer {
+              margin-top: 40px;
+              padding-top: 15px;
+              border-top: 1px solid #e2e8f0;
+              text-align: center;
+              font-size: 9px;
+              color: #94a3b8;
+              font-weight: 700;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            ${printContent.innerHTML}
+          </div>
+          <script>
+            window.onload = () => {
+              window.print();
+              setTimeout(() => window.close(), 500);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  const getStatusLabel = (status?: IncidentStatus) => {
+    switch (status) {
+      case 'RECIBIDO': return 'Recibido';
+      case 'EN_SEGUIMIENTO': return 'En Seguimiento';
+      case 'CERRADO': return 'Cerrado';
+      default: return 'Pendiente';
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 md:p-8 overflow-y-auto">
+      <style dangerouslySetInnerHTML={{ __html: `
+        .preview-container .header { 
+          display: flex;
+          flex-direction: row;
+          align-items: center;
+          justify-content: space-between;
+          border-bottom: 3px solid #4f46e5; 
+          padding-bottom: 20px; 
+          margin-bottom: 30px; 
+          text-align: right;
+        }
+        .preview-container .logo-container {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          margin-bottom: 0;
+        }
+        .preview-container .header-logo {
+          height: 70px;
+          width: auto;
+          margin-bottom: 4px;
+        }
+        .preview-container .logo-text {
+          font-weight: 900;
+          font-size: 14px;
+          letter-spacing: 0.3em;
+          color: #1e293b;
+          margin-top: -5px;
+        }
+        .preview-container .header h1 { 
+          margin: 10px 0 0 0; 
+          color: #1e293b; 
+          font-size: 18px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        .preview-container .header p { 
+          margin: 2px 0 0 0; 
+          color: #64748b; 
+          font-weight: 700;
+          font-size: 11px;
+        }
+        .preview-container .section { 
+          margin-bottom: 20px; 
+        }
+        .preview-container .section-title { 
+          border-bottom: 1px solid #e2e8f0; 
+          padding-bottom: 4px; 
+          margin-bottom: 10px; 
+          color: #4f46e5; 
+          text-transform: uppercase; 
+          font-size: 10px; 
+          font-weight: 800;
+          letter-spacing: 0.05em;
+        }
+        .preview-container .info-grid { 
+          display: grid; 
+          grid-template-columns: 1fr 1fr; 
+          gap: 12px; 
+          background: #f8fafc;
+          padding: 15px;
+          border-radius: 10px;
+          border: 1px solid #e2e8f0;
+        }
+        .preview-container .info-item { display: flex; flex-direction: column; }
+        .preview-container .label { 
+          font-weight: 800; 
+          color: #64748b; 
+          font-size: 9px; 
+          text-transform: uppercase; 
+          margin-bottom: 2px;
+        }
+        .preview-container .content { 
+          font-size: 12px; 
+          color: #334155;
+          font-weight: 600;
+        }
+        .preview-container .categories-container { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+        .preview-container .category-tag {
+          background: #e0e7ff;
+          color: #4338ca;
+          padding: 2px 10px;
+          border-radius: 9999px;
+          font-size: 9px;
+          font-weight: 800;
+        }
+        .preview-container .main-description {
+          background: #f8fafc;
+          padding: 12px;
+          border-left: 3px solid #4f46e5;
+          font-size: 12px;
+          white-space: pre-wrap;
+          border-radius: 0 8px 8px 0;
+        }
+        .preview-container .comment { 
+          background: #f8fafc; 
+          padding: 10px; 
+          border-radius: 8px; 
+          margin-bottom: 10px; 
+          border: 1px solid #e2e8f0; 
+        }
+        .preview-container .comment-header {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 4px;
+          border-bottom: 1px dashed #cbd5e1;
+          padding-bottom: 2px;
+        }
+        .preview-container .comment-author { font-weight: 700; font-size: 10px; }
+        .preview-container .comment-date { font-size: 9px; color: #94a3b8; }
+        .preview-container .comment-body { margin: 0; font-size: 11px; color: #475569; }
+        .preview-container .images-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          margin-top: 10px;
+        }
+        .preview-container .images-grid img {
+          width: 100%;
+          height: 180px;
+          object-fit: cover;
+          border-radius: 8px;
+          border: 1px solid #e2e8f0;
+        }
+        .preview-container .footer {
+          margin-top: 40px;
+          padding-top: 15px;
+          border-top: 1px solid #e2e8f0;
+          text-align: center;
+          font-size: 9px;
+          color: #94a3b8;
+          font-weight: 700;
+        }
+      `}} />
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl flex flex-col h-full max-h-[95vh]"
+      >
+        <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-white sticky top-0 rounded-t-2xl z-10">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+              <Printer className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Vista Previa de Reporte</h2>
+              <p className="text-xs text-slate-500">Revisa el formato antes de imprimir</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+            >
+              <Printer className="w-4 h-4" />
+              Imprimir Reporte
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-4 md:p-12 bg-slate-100/50 preview-container">
+          <div id="printable-report" className="bg-white shadow-2xl border border-slate-200 p-8 md:p-16 mx-auto w-full max-w-[21cm] min-h-[29.7cm] font-sans text-slate-800">
+            <div className="header">
+              <div className="logo-container">
+                <img 
+                  src="https://firebasestorage.googleapis.com/v0/b/ais-dev-24idlihunsqqvm5f765oqg.appspot.com/o/attachments%2Flogo_dunor.png?alt=media" 
+                  alt="DUNOR Logo" 
+                  className="header-logo"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = "/logo.svg";
+                  }}
+                />
+                <span className="logo-text">DUNOR</span>
+              </div>
+              <div className="header-text">
+                <h1>Reporte de Incidencia</h1>
+                <p>Fecha de Emisión: {incident.date}</p>
+              </div>
+            </div>
+            
+            <div className="section">
+              <h3 className="section-title">Información General</h3>
+              <div className="info-grid">
+                <div className="info-item">
+                  <span className="label">Colegio</span>
+                  <span className="content">{incident.school}</span>
+                </div>
+                <div className="info-item">
+                  <span className="label">Lugar de los hechos</span>
+                  <span className="content">{incident.place}</span>
+                </div>
+                <div className="info-item">
+                  <span className="label">Reportado por</span>
+                  <span className="content">{incident.reporterName}</span>
+                </div>
+                <div className="info-item">
+                  <span className="label">Estado Actual</span>
+                  <span className="content">{getStatusLabel(incident.status)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="section">
+              <h3 className="section-title">Alumnos Involucrados</h3>
+              <p className="content" style={{ fontSize: '14px' }}>{incident.students}</p>
+            </div>
+
+            {incident.categories && incident.categories.length > 0 && (
+              <div className="section">
+                <h3 className="section-title">Categorías</h3>
+                <div className="categories-container">
+                  {incident.categories.map(cat => (
+                    <span key={cat} className="category-tag">
+                      {cat}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="section">
+              <h3 className="section-title">Descripción de los hechos</h3>
+              <div className="main-description">{incident.description}</div>
+            </div>
+
+            <div className="section">
+              <h3 className="section-title">Medidas disciplinarias</h3>
+              <div className="main-description" style={{ borderLeftColor: '#ef4444' }}>{incident.disciplinaryMeasures}</div>
+            </div>
+
+            <div className="section">
+              <h3 className="section-title">Seguimiento General</h3>
+              <div className="main-description" style={{ borderLeftColor: '#10b981' }}>{incident.followUp || 'Sin seguimiento registrado.'}</div>
+            </div>
+
+            {incident.followUpHistory && incident.followUpHistory.length > 0 && (
+              <div className="section">
+                <h3 className="section-title">Historial de Seguimiento</h3>
+                <div className="space-y-3">
+                  {incident.followUpHistory.map((h, i) => (
+                    <div key={i} className="comment">
+                      <div className="comment-header">
+                        <span className="comment-author">{h.authorName}</span>
+                        <span className="comment-date">{format(h.timestamp, "dd/MM/yyyy HH:mm")}</span>
+                      </div>
+                      <p className="comment-body">{h.comment}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {incident.images && incident.images.length > 0 && (
+              <div className="section">
+                <h3 className="section-title">Evidencia Fotográfica</h3>
+                <div className="images-grid">
+                  {incident.images.map((img, i) => (
+                    <img key={i} src={img} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="footer">
+              Este es un documento oficial generado por el Sistema Diario del Docente - DUNOR
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
 
 const ImageGallery = ({ isOpen, images, currentIndex, onClose }: { isOpen: boolean, images: string[], currentIndex: number, onClose: () => void }) => {
   const [index, setIndex] = useState(currentIndex);
@@ -776,6 +1237,8 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
     images: [],
     currentIndex: 0,
   });
+
+  const [printIncident, setPrintIncident] = useState<Incident | null>(null);
 
   const isSuperAdmin = profile?.email?.toLowerCase() === 'jorge.villanueva@boletomovil.com';
 
@@ -1605,6 +2068,7 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
                       onDelete={() => deleteIncident(incident)}
                       onForward={(adminId: string) => forwardIncidentToAdmin(incident, adminId)}
                       onOpenGallery={openGallery}
+                      onPrint={(inc) => setPrintIncident(inc)}
                       systemSettings={systemSettings}
                       admins={admins}
                       selectable={isSuperAdmin}
@@ -1905,6 +2369,13 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
         currentIndex={galleryConfig.currentIndex}
         onClose={() => setGalleryConfig(prev => ({ ...prev, isOpen: false }))}
       />
+
+      {printIncident && (
+        <PrintPreview 
+          incident={printIncident} 
+          onClose={() => setPrintIncident(null)} 
+        />
+      )}
     </ErrorBoundary>
   );
 }
@@ -1935,6 +2406,7 @@ interface IncidentCardProps {
   onDelete: () => void | Promise<void>;
   onForward: (adminId: string) => void | Promise<void>;
   onOpenGallery: (images: string[], index: number) => void;
+  onPrint: (incident: Incident) => void;
   systemSettings: SystemSettings;
   admins: UserProfile[];
   selectable?: boolean;
@@ -1943,7 +2415,7 @@ interface IncidentCardProps {
   expandedIncidentId?: string | null;
 }
 
-const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkReceived, onUpdateStatus, onUpdateFollowUp, onDelete, onForward, onOpenGallery, systemSettings, admins, selectable, selected, onSelect, expandedIncidentId }) => {
+const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkReceived, onUpdateStatus, onUpdateFollowUp, onDelete, onForward, onOpenGallery, onPrint, systemSettings, admins, selectable, selected, onSelect, expandedIncidentId }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [isEditingFollowUp, setIsEditingFollowUp] = useState(false);
@@ -2045,8 +2517,17 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
               )}
             </div>
             <h3 className="text-lg font-bold text-slate-900 mb-1">{incident.place}</h3>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <p className="text-sm text-slate-600 line-clamp-1">Alumnos: {incident.students}</p>
+              {incident.categories && incident.categories.length > 0 && (
+                <div className="flex gap-1">
+                  {incident.categories.map(cat => (
+                    <span key={cat} className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full font-medium">
+                      {cat}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -2109,6 +2590,20 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
               )}
 
               <DetailSection label="Descripción de los hechos" content={incident.description} />
+              
+              {incident.categories && incident.categories.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold text-slate-400 uppercase">Categorías</p>
+                  <div className="flex flex-wrap gap-2">
+                    {incident.categories.map(cat => (
+                      <span key={cat} className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 shadow-sm">
+                        {cat}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <DetailSection label="Medidas disciplinarias" content={incident.disciplinaryMeasures} />
               
               <div className="space-y-3">
@@ -2211,13 +2706,31 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
                   )}
                 </div>
                 {role === 'COORDINATOR' && incident.status === 'CERRADO' && (
-                  <div className="flex justify-end items-end">
+                  <div className="flex justify-end items-end gap-2">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onPrint(incident); }}
+                      className="flex items-center gap-2 text-slate-600 hover:bg-slate-100 px-3 py-2 rounded-lg transition-all text-sm font-bold"
+                    >
+                      <Printer className="w-4 h-4" />
+                      Imprimir
+                    </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); onDelete(); }}
                       className="flex items-center gap-2 text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg transition-all text-sm font-bold"
                     >
                       <Trash2 className="w-4 h-4" />
                       Eliminar
+                    </button>
+                  </div>
+                )}
+                {role === 'COORDINATOR' && incident.status !== 'CERRADO' && (
+                  <div className="flex justify-end items-end">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onPrint(incident); }}
+                      className="flex items-center gap-2 text-slate-600 hover:bg-slate-100 px-3 py-2 rounded-lg transition-all text-sm font-bold"
+                    >
+                      <Printer className="w-4 h-4" />
+                      Imprimir
                     </button>
                   </div>
                 )}
@@ -2250,6 +2763,7 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
     followUp: '',
     coordinatorId: '',
     school: 'Campus Victoria',
+    categories: [] as string[],
   });
   const [images, setImages] = useState<string[]>([]);
 
@@ -2445,6 +2959,35 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
             placeholder="Nombres de los alumnos..."
           />
         </InputGroup>
+
+        <div className="space-y-3">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Categoría de la Incidencia</p>
+          <div className="flex flex-wrap gap-4">
+            {[
+              'Académico',
+              'Comportamiento',
+              'Salud'
+            ].map((cat) => (
+              <label key={cat} className="flex items-center gap-2 cursor-pointer group">
+                <div 
+                  onClick={() => {
+                    const newCats = formData.categories.includes(cat)
+                      ? formData.categories.filter(c => c !== cat)
+                      : [...formData.categories, cat];
+                    setFormData({ ...formData, categories: newCats });
+                  }}
+                  className={cn(
+                    "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
+                    formData.categories.includes(cat) ? "bg-indigo-600 border-indigo-600" : "border-slate-300 bg-white group-hover:border-indigo-400"
+                  )}
+                >
+                  {formData.categories.includes(cat) && <CheckCircle2 className="w-4 h-4 text-white" />}
+                </div>
+                <span className="text-sm text-slate-700 font-medium">{cat}</span>
+              </label>
+            ))}
+          </div>
+        </div>
 
         <InputGroup label="Descripción de los hechos" required>
           <textarea
