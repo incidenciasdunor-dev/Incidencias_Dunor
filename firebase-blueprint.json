@@ -60,7 +60,8 @@
       "properties": {
         "emailNotificationsEnabled": { "type": "boolean" },
         "forwardingEnabled": { "type": "boolean" },
-        "coordinatorAdminMapping": { "type": "object", "description": "Mapping of coordinator UIDs to arrays of admin UIDs" }
+        "coordinatorAdminMapping": { "type": "object", "description": "Mapping of coordinator UIDs to arrays of admin UIDs" },
+        "categories": { "type": "array", "items": { "type": "string" }, "description": "List of incident categories" }
       },
       "required": ["emailNotificationsEnabled", "forwardingEnabled", "coordinatorAdminMapping"]
     },
@@ -77,6 +78,19 @@
         "createdAt": { "type": "number", "description": "Timestamp of creation" }
       },
       "required": ["userId", "title", "message", "incidentId", "read", "createdAt"]
+    },
+    "Log": {
+      "title": "Log",
+      "description": "Represents a system activity log.",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "description": "Description of the action performed" },
+        "userEmail": { "type": "string", "description": "Email of the user who performed the action" },
+        "userName": { "type": "string", "description": "Name of the user who performed the action" },
+        "timestamp": { "type": "number", "description": "Timestamp of the action" },
+        "details": { "type": "string", "description": "Optional additional details" }
+      },
+      "required": ["action", "userEmail", "userName", "timestamp"]
     }
   },
   "firestore": {
@@ -95,6 +109,10 @@
     "/settings/{settingId}": {
       "schema": "SystemSettings",
       "description": "Global system settings"
+    },
+    "/logs/{logId}": {
+      "schema": "Log",
+      "description": "System activity logs"
     }
   }
 }

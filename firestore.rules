@@ -122,6 +122,14 @@ service cloud.firestore {
              data.createdAt is number;
     }
 
+    function isValidLog(data) {
+      return data.keys().hasAll(['action', 'userEmail', 'userName', 'timestamp']) &&
+             data.action is string &&
+             data.userEmail is string &&
+             data.userName is string &&
+             data.timestamp is number;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -173,12 +181,19 @@ service cloud.firestore {
 
     match /settings/{settingId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || (isCoordinator() && settingId == 'global');
     }
 
     match /mail/{mailId} {
       allow create: if isAuthenticated();
       allow read, update, delete: if false; // Only extension should read/process
+    }
+
+    match /logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated() && isValidLog(request.resource.data);
+      allow delete: if isAdmin();
+      allow update: if false;
     }
   }
 }

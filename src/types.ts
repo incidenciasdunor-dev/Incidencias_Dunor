@@ -22,6 +22,7 @@ export interface SystemSettings {
   emailNotificationsEnabled: boolean;
   forwardingEnabled: boolean;
   coordinatorAdminMapping: Record<string, string[]>; // coordinatorId -> adminIds[]
+  categories?: string[];
 }
 
 export interface Incident {
@@ -47,4 +48,13 @@ export interface Incident {
   deletedByCoordinators?: string[];
   forwardedTo?: string[];
   createdAt: number;
+}
+
+export interface Log {
+  id?: string;
+  action: string;
+  userEmail: string;
+  userName: string;
+  timestamp: number;
+  details?: string;
 }

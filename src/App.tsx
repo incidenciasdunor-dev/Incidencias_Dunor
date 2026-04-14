@@ -11,7 +11,7 @@ import { useAuthState } from 'react-firebase-hooks/auth';
 import { Plus, LogOut, UserPlus, Users, ClipboardList, CheckCircle2, AlertCircle, ChevronRight, ChevronLeft, Menu, X, Trash2, Edit2, Phone, Mail, User as UserIcon, School, Lock, Eye, EyeOff, Image as ImageIcon, History, Send, Settings, Printer } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from './lib/utils';
-import { UserProfile, Incident, UserRole, IncidentStatus, FollowUpComment, SystemSettings } from './types';
+import { UserProfile, Incident, UserRole, IncidentStatus, FollowUpComment, SystemSettings, Log } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 
 const Logo = ({ className, short = false }: { className?: string, short?: boolean }) => (
@@ -1218,7 +1218,17 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
   const DEFAULT_SETTINGS: SystemSettings = {
     emailNotificationsEnabled: true,
     forwardingEnabled: false,
-    coordinatorAdminMapping: {}
+    coordinatorAdminMapping: {},
+    categories: [
+      'Agresión Física',
+      'Agresión Verbal',
+      'Daño a Material',
+      'Lenguaje Obsceno',
+      'Manifestó Agresividad',
+      'Incumplimiento de Actividades',
+      'Accidente Escolar',
+      'Falta de Respeto al Docente'
+    ]
   };
 
   const [systemSettings, setSystemSettings] = useState<SystemSettings>(DEFAULT_SETTINGS);
@@ -1228,6 +1238,8 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
   const [selectedNotifications, setSelectedNotifications] = useState<string[]>([]);
   const [isNotifSelectionMode, setIsNotifSelectionMode] = useState(false);
   const [expandedIncidentId, setExpandedIncidentId] = useState<string | null>(null);
+  const [newCategory, setNewCategory] = useState('');
+  const [logs, setLogs] = useState<Log[]>([]);
   const [galleryConfig, setGalleryConfig] = useState<{
     isOpen: boolean;
     images: string[];
@@ -1262,6 +1274,19 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
     });
     return () => unsubscribe();
   }, [user]);
+
+  useEffect(() => {
+    if (isSuperAdmin) {
+      const q = query(collection(db, 'logs'), orderBy('timestamp', 'desc'), limit(200));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const logsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Log));
+        setLogs(logsData);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'logs');
+      });
+      return () => unsubscribe();
+    }
+  }, [isSuperAdmin]);
 
   const sendNotification = async (userId: string, title: string, message: string, incidentId?: string) => {
     const notificationData = {
@@ -1308,6 +1333,21 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
           console.error("Error sending notification to admin:", e);
         }
       }
+    }
+  };
+
+  const addLog = async (action: string, details?: string) => {
+    if (!profile) return;
+    try {
+      await addDoc(collection(db, 'logs'), {
+        action,
+        userEmail: profile.email,
+        userName: profile.name,
+        timestamp: Date.now(),
+        details: details || ''
+      });
+    } catch (e) {
+      console.error("Error adding log:", e);
     }
   };
 
@@ -1924,12 +1964,20 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
                     onClick={() => { setActiveTab('users'); setIsSidebarOpen(false); }}
                   />
                 )}
-                {isSuperAdmin && (
+                {(isSuperAdmin || profile.role === 'COORDINATOR') && (
                   <SidebarItem
                     icon={<Settings className="w-5 h-5" />}
                     label="Configuración"
                     active={activeTab === 'settings'}
                     onClick={() => { setActiveTab('settings'); setIsSidebarOpen(false); }}
+                  />
+                )}
+                {isSuperAdmin && (
+                  <SidebarItem
+                    icon={<History className="w-5 h-5" />}
+                    label="Logs"
+                    active={activeTab === 'logs'}
+                    onClick={() => { setActiveTab('logs'); setIsSidebarOpen(false); }}
                   />
                 )}
                 {profile.role === 'TEACHER' && (
@@ -2207,7 +2255,13 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
             >
-              <UserManagement profile={profile} coordinators={coordinators} teachers={teachers} admins={admins} />
+              <UserManagement 
+                profile={profile} 
+                coordinators={coordinators} 
+                teachers={teachers} 
+                admins={admins}
+                addLog={addLog}
+              />
             </motion.div>
           )}
 
@@ -2225,11 +2279,12 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
                 onCancel={() => setActiveTab('incidents')}
                 sendNotification={sendNotification}
                 systemSettings={systemSettings}
+                addLog={addLog}
               />
             </motion.div>
           )}
 
-          {activeTab === 'settings' && isSuperAdmin && (
+          {activeTab === 'settings' && (isSuperAdmin || profile.role === 'COORDINATOR') && (
             <motion.div
               key="settings"
               initial={{ opacity: 0, y: 10 }}
@@ -2239,41 +2294,215 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
             >
               <div className="mb-8">
                 <h1 className="text-2xl font-bold text-slate-900">Configuración del Sistema</h1>
-                <p className="text-slate-500">Administra las notificaciones y permisos globales</p>
+                <p className="text-slate-500">Administra las categorías y preferencias globales</p>
               </div>
 
+              {/* Categorías de Incidencia */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="p-6 border-b border-slate-100">
                   <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                    <Mail className="w-5 h-5 text-indigo-600" />
-                    Notificaciones por Correo
+                    <ClipboardList className="w-5 h-5 text-indigo-600" />
+                    Categorías de Incidencia
                   </h2>
-                  <p className="text-sm text-slate-500 mt-1">Habilita o deshabilita el envío de correos electrónicos automáticos.</p>
+                  <p className="text-sm text-slate-500 mt-1">Administra las categorías disponibles para los reportes.</p>
                 </div>
-                <div className="p-6 flex items-center justify-between">
-                  <span className="font-medium text-slate-700">Estado del servicio</span>
-                  <button
-                    onClick={async () => {
-                      try {
-                        await setDoc(doc(db, 'settings', 'global'), {
-                          emailNotificationsEnabled: !systemSettings.emailNotificationsEnabled
-                        }, { merge: true });
-                      } catch (error) {
-                        console.error("Error updating email settings:", error);
-                      }
-                    }}
-                    className={cn(
-                      "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2",
-                      systemSettings.emailNotificationsEnabled ? "bg-indigo-600" : "bg-slate-200"
-                    )}
-                  >
-                    <span
+                <div className="p-6 space-y-4">
+                  {profile.role === 'COORDINATOR' && (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newCategory}
+                        onChange={(e) => setNewCategory(e.target.value)}
+                        placeholder="Nueva categoría..."
+                        className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                      />
+                      <button
+                        onClick={async () => {
+                          if (!newCategory.trim()) return;
+                          const updatedCategories = [...(systemSettings.categories || []), newCategory.trim()];
+                          try {
+                            await setDoc(doc(db, 'settings', 'global'), {
+                              categories: updatedCategories
+                            }, { merge: true });
+                            await addLog('Creó una nueva categoría', `Categoría: ${newCategory.trim()}`);
+                            setNewCategory('');
+                          } catch (error) {
+                            console.error("Error adding category:", error);
+                          }
+                        }}
+                        className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-indigo-700 transition-all flex items-center gap-2"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Agregar
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {(systemSettings.categories || []).map((cat) => (
+                      <div key={cat} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 group">
+                        <span className="text-sm font-medium text-slate-700">{cat}</span>
+                        {profile.role === 'COORDINATOR' && (
+                          <button
+                            onClick={async () => {
+                              const updatedCategories = (systemSettings.categories || []).filter(c => c !== cat);
+                              try {
+                                await setDoc(doc(db, 'settings', 'global'), {
+                                  categories: updatedCategories
+                                }, { merge: true });
+                                await addLog('Eliminó una categoría', `Categoría: ${cat}`);
+                              } catch (error) {
+                                console.error("Error removing category:", error);
+                              }
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {isSuperAdmin && (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                  <div className="p-6 border-b border-slate-100">
+                    <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                      <Mail className="w-5 h-5 text-indigo-600" />
+                      Notificaciones por Correo
+                    </h2>
+                    <p className="text-sm text-slate-500 mt-1">Habilita o deshabilita el envío de correos electrónicos automáticos.</p>
+                  </div>
+                  <div className="p-6 flex items-center justify-between">
+                    <span className="font-medium text-slate-700">Estado del servicio</span>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await setDoc(doc(db, 'settings', 'global'), {
+                            emailNotificationsEnabled: !systemSettings.emailNotificationsEnabled
+                          }, { merge: true });
+                        } catch (error) {
+                          console.error("Error updating email settings:", error);
+                        }
+                      }}
                       className={cn(
-                        "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                        systemSettings.emailNotificationsEnabled ? "translate-x-6" : "translate-x-1"
+                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2",
+                        systemSettings.emailNotificationsEnabled ? "bg-indigo-600" : "bg-slate-200"
                       )}
-                    />
+                    >
+                      <span
+                        className={cn(
+                          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                          systemSettings.emailNotificationsEnabled ? "translate-x-6" : "translate-x-1"
+                        )}
+                      />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {activeTab === 'logs' && isSuperAdmin && (
+            <motion.div
+              key="logs"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-6"
+            >
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                <div>
+                  <h1 className="text-2xl font-bold text-slate-900">Logs del Sistema</h1>
+                  <p className="text-slate-500">Registro de actividades y modificaciones recientes</p>
+                </div>
+                {logs.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setConfirmModal({
+                        isOpen: true,
+                        title: 'Borrar Historial de Logs',
+                        message: '¿Estás seguro de que deseas eliminar todos los registros de actividad? Esta acción no se puede deshacer.',
+                        onConfirm: async () => {
+                          try {
+                            const batch = writeBatch(db);
+                            // Firestore batch limit is 500, but we fetch 200 in the listener
+                            logs.forEach((log) => {
+                              if (log.id) {
+                                batch.delete(doc(db, 'logs', log.id));
+                              }
+                            });
+                            await batch.commit();
+                            setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                          } catch (error) {
+                            console.error("Error clearing logs:", error);
+                          }
+                        }
+                      });
+                    }}
+                    className="flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 rounded-xl font-bold hover:bg-red-100 transition-all border border-red-100"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Borrar Historial
                   </button>
+                )}
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100">
+                        <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Fecha y Hora</th>
+                        <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Usuario</th>
+                        <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Acción</th>
+                        <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Detalles</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {logs.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-6 py-10 text-center text-slate-400 italic">
+                            No hay registros de actividad disponibles.
+                          </td>
+                        </tr>
+                      ) : (
+                        logs.map((log) => (
+                          <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm font-medium text-slate-900">
+                                {format(log.timestamp, "dd/MM/yyyy")}
+                              </div>
+                              <div className="text-xs text-slate-500">
+                                {format(log.timestamp, "HH:mm:ss")}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm font-bold text-slate-900">{log.userName}</div>
+                              <div className="text-xs text-slate-500">{log.userEmail}</div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={cn(
+                                "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold",
+                                log.action.includes('Eliminó') ? "bg-red-50 text-red-700" :
+                                log.action.includes('Creó') ? "bg-green-50 text-green-700" :
+                                "bg-blue-50 text-blue-700"
+                              )}>
+                                {log.action}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="text-sm text-slate-600 max-w-xs truncate" title={log.details}>
+                                {log.details || '-'}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </motion.div>
@@ -2751,7 +2980,15 @@ const DetailSection = ({ label, content }: { label: string, content: string }) =
   </div>
 );
 
-const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotification, systemSettings }: { profile: UserProfile, coordinators: UserProfile[], onSuccess: () => void, onCancel: () => void, sendNotification: (userId: string, title: string, message: string, incidentId?: string) => Promise<void>, systemSettings: SystemSettings }) => {
+const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotification, systemSettings, addLog }: { 
+  profile: UserProfile, 
+  coordinators: UserProfile[], 
+  onSuccess: () => void, 
+  onCancel: () => void, 
+  sendNotification: (userId: string, title: string, message: string, incidentId?: string) => Promise<void>, 
+  systemSettings: SystemSettings,
+  addLog: (action: string, details?: string) => Promise<void>
+}) => {
   const [loading, setLoading] = useState(false);
   const [processingImages, setProcessingImages] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -2858,6 +3095,8 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
 
       const docRef = await addDoc(collection(db, 'incidents'), newIncident);
       
+      await addLog('Creó reporte de incidencia', `Lugar: ${formData.place}, Estudiantes: ${formData.students}`);
+      
       // Add in-app notification for the coordinator
       await sendNotification(
         formData.coordinatorId,
@@ -2962,30 +3201,40 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
 
         <div className="space-y-3">
           <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Categoría de la Incidencia</p>
-          <div className="flex flex-wrap gap-4">
-            {[
-              'Académico',
-              'Comportamiento',
-              'Salud'
-            ].map((cat) => (
-              <label key={cat} className="flex items-center gap-2 cursor-pointer group">
+          <div className="flex flex-col gap-4">
+            <select
+              onChange={(e) => {
+                const cat = e.target.value;
+                if (cat && !formData.categories.includes(cat)) {
+                  setFormData({ ...formData, categories: [...formData.categories, cat] });
+                }
+                e.target.value = ""; // Reset select
+              }}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+            >
+              <option value="">Selecciona una categoría...</option>
+              {(systemSettings.categories || []).map(cat => (
+                <option key={cat} value={cat} disabled={formData.categories.includes(cat)}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+
+            <div className="flex flex-wrap gap-2">
+              {formData.categories.map((cat) => (
                 <div 
+                  key={cat}
                   onClick={() => {
-                    const newCats = formData.categories.includes(cat)
-                      ? formData.categories.filter(c => c !== cat)
-                      : [...formData.categories, cat];
-                    setFormData({ ...formData, categories: newCats });
+                    setFormData({ ...formData, categories: formData.categories.filter(c => c !== cat) });
                   }}
-                  className={cn(
-                    "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
-                    formData.categories.includes(cat) ? "bg-indigo-600 border-indigo-600" : "border-slate-300 bg-white group-hover:border-indigo-400"
-                  )}
+                  className="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full text-sm font-bold cursor-pointer hover:bg-indigo-100 transition-all animate-in fade-in zoom-in duration-200"
                 >
-                  {formData.categories.includes(cat) && <CheckCircle2 className="w-4 h-4 text-white" />}
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{cat}</span>
+                  <X className="w-3 h-3 ml-1 opacity-50" />
                 </div>
-                <span className="text-sm text-slate-700 font-medium">{cat}</span>
-              </label>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
 
@@ -3092,7 +3341,13 @@ const InputGroup = ({ label, children, required }: { label: string, children: Re
   </div>
 );
 
-const UserManagement = ({ profile, coordinators, teachers, admins }: { profile: UserProfile, coordinators: UserProfile[], teachers: UserProfile[], admins: UserProfile[] }) => {
+const UserManagement = ({ profile, coordinators, teachers, admins, addLog }: { 
+  profile: UserProfile, 
+  coordinators: UserProfile[], 
+  teachers: UserProfile[], 
+  admins: UserProfile[],
+  addLog: (action: string, details?: string) => Promise<void>
+}) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -3125,6 +3380,7 @@ const UserManagement = ({ profile, coordinators, teachers, admins }: { profile: 
         isRegistered: false,
         password: '', // Initialize as empty string
       });
+      await addLog('Creó un usuario', `Nombre: ${formData.name}, Email: ${emailId}, Rol: ${newUserRole}`);
       setShowAddModal(false);
       setFormData({ name: '', email: '', phone: '' });
     } catch (error) {
@@ -3175,6 +3431,7 @@ const UserManagement = ({ profile, coordinators, teachers, admins }: { profile: 
 
           // 2. Delete from Firestore
           await deleteDoc(doc(db, 'users', emailId));
+          await addLog('Eliminó un usuario', `Nombre: ${userToDelete.name}, Email: ${userToDelete.email}`);
 
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
         } catch (error) {
@@ -3188,6 +3445,7 @@ const UserManagement = ({ profile, coordinators, teachers, admins }: { profile: 
     try {
       const emailId = userToUpdate.email.toLowerCase().trim();
       await updateDoc(doc(db, 'users', emailId), { role: newRole });
+      await addLog('Actualizó rol de usuario', `Usuario: ${userToUpdate.name}, Nuevo Rol: ${newRole}`);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${userToUpdate.email}`);
     }
