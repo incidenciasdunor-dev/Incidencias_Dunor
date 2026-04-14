@@ -532,7 +532,7 @@ const PrintPreview = ({ incident, onClose }: { incident: Incident, onClose: () =
 
             {incident.categories && incident.categories.length > 0 && (
               <div className="section">
-                <h3 className="section-title">Categorías</h3>
+                <h3 className="section-title">Categoría de la Incidencia</h3>
                 <div className="categories-container">
                   {incident.categories.map(cat => (
                     <span key={cat} className="category-tag">
@@ -1873,13 +1873,6 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
     });
   };
 
-  const getInitials = (name: string) => {
-    const parts = name.trim().split(/\s+/);
-    if (parts.length === 0) return '';
-    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-    return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
-  };
-
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
@@ -1993,8 +1986,8 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
               {/* Bottom Section with Logout */}
               <div className="mt-auto pt-6 border-t border-slate-100 bg-white sticky bottom-0">
                 <div className="flex items-center gap-3 mb-4 px-2">
-                  <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold flex-shrink-0">
-                    {getInitials(profile.name)}
+                  <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 flex-shrink-0">
+                    <UserIcon className="w-6 h-6" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-slate-900 truncate">{profile.name}</p>
@@ -2821,8 +2814,8 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
               <DetailSection label="Descripción de los hechos" content={incident.description} />
               
               {incident.categories && incident.categories.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs font-bold text-slate-400 uppercase">Categorías</p>
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Categoría de la Incidencia</p>
                   <div className="flex flex-wrap gap-2">
                     {incident.categories.map(cat => (
                       <span key={cat} className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 shadow-sm">
@@ -3199,8 +3192,7 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
           />
         </InputGroup>
 
-        <div className="space-y-3">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Categoría de la Incidencia</p>
+        <InputGroup label="Categoría de la Incidencia">
           <div className="flex flex-col gap-4">
             <select
               onChange={(e) => {
@@ -3236,7 +3228,7 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
               ))}
             </div>
           </div>
-        </div>
+        </InputGroup>
 
         <InputGroup label="Descripción de los hechos" required>
           <textarea
