@@ -8,7 +8,7 @@ import { auth, db } from './lib/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, confirmPasswordReset, verifyPasswordResetCode, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, collectionGroup, arrayUnion, limit, writeBatch } from 'firebase/firestore';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { Plus, LogOut, UserPlus, Users, ClipboardList, CheckCircle2, AlertCircle, ChevronRight, ChevronLeft, Menu, X, Trash2, Edit2, Phone, Mail, User as UserIcon, School, Lock, Eye, EyeOff, Image as ImageIcon, History, Send, Settings, Printer } from 'lucide-react';
+import { Plus, LogOut, UserPlus, Users, ClipboardList, CheckCircle2, AlertCircle, ChevronRight, ChevronLeft, ChevronDown, Menu, X, Trash2, Edit2, Phone, Mail, User as UserIcon, School, Lock, Eye, EyeOff, Image as ImageIcon, History, Send, Settings, Printer } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from './lib/utils';
 import { UserProfile, Incident, UserRole, IncidentStatus, FollowUpComment, SystemSettings, Log } from './types';
@@ -1532,7 +1532,7 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
   }, [profile, isSuperAdmin]);
 
   useEffect(() => {
-    if (profile?.role === 'ADMIN' || isSuperAdmin) {
+    if (profile?.role === 'ADMIN' || profile?.role === 'TEACHER' || isSuperAdmin) {
       const q = query(collection(db, 'users'), where('role', '==', 'TEACHER'), limit(100));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const users = snapshot.docs.map(doc => doc.data() as UserProfile);
@@ -2103,6 +2103,8 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
                       key={incident.id}
                       incident={incident}
                       profile={profile}
+                      coordinators={coordinators}
+                      teachers={teachers}
                       onMarkReceived={() => markAsReceived(incident.id)}
                       onUpdateStatus={(status: IncidentStatus) => updateIncidentStatus(incident, status)}
                       onUpdateFollowUp={(followUp: string, history: FollowUpComment[], newCommentText: string) => updateIncidentFollowUp(incident, followUp, history, newCommentText)}
@@ -2268,6 +2270,7 @@ function AppContent({ user, loading }: { user: User | null | undefined, loading:
               <IncidentForm
                 profile={profile}
                 coordinators={coordinators}
+                teachers={teachers}
                 onSuccess={() => setActiveTab('incidents')}
                 onCancel={() => setActiveTab('incidents')}
                 sendNotification={sendNotification}
@@ -2622,6 +2625,8 @@ const SidebarItem = ({ icon, label, active, onClick }: { icon: React.ReactNode, 
 interface IncidentCardProps {
   incident: Incident;
   profile: UserProfile;
+  coordinators: UserProfile[];
+  teachers: UserProfile[];
   onMarkReceived: () => void | Promise<void>;
   onUpdateStatus: (status: IncidentStatus) => void | Promise<void>;
   onUpdateFollowUp: (followUp: string, history: FollowUpComment[], newCommentText: string) => void | Promise<void>;
@@ -2637,7 +2642,7 @@ interface IncidentCardProps {
   expandedIncidentId?: string | null;
 }
 
-const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkReceived, onUpdateStatus, onUpdateFollowUp, onDelete, onForward, onOpenGallery, onPrint, systemSettings, admins, selectable, selected, onSelect, expandedIncidentId }) => {
+const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, coordinators, teachers, onMarkReceived, onUpdateStatus, onUpdateFollowUp, onDelete, onForward, onOpenGallery, onPrint, systemSettings, admins, selectable, selected, onSelect, expandedIncidentId }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [isEditingFollowUp, setIsEditingFollowUp] = useState(false);
@@ -2696,13 +2701,22 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
     }
   };
 
+    const getStatusBorderColor = (status?: IncidentStatus) => {
+    switch (status) {
+      case 'RECIBIDO': return 'border-l-emerald-500';
+      case 'EN_SEGUIMIENTO': return 'border-l-indigo-600';
+      case 'CERRADO': return 'border-l-slate-400';
+      default: return 'border-l-amber-500';
+    }
+  };
+
   return (
     <div 
       id={`incident-${incident.id}`}
       className={cn(
-        "bg-white rounded-2xl border transition-all duration-200",
+        "bg-white rounded-2xl border border-l-4 transition-all duration-200 hover:shadow-md",
         selected ? "border-indigo-600 ring-2 ring-indigo-100 shadow-md" : "border-slate-200",
-        !incident.isReceived && role === 'COORDINATOR' ? "border-l-4 border-l-indigo-600 shadow-md" : "hover:shadow-md"
+        getStatusBorderColor(incident.status)
       )}
     >
       <div className="flex items-stretch">
@@ -2723,9 +2737,9 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
           </div>
         )}
         <div className="flex-1 p-5 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-          <div className="flex items-start justify-between gap-4">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
+          <div className="flex flex-col sm:flex-row items-start sm:justify-between gap-4">
+          <div className="flex-1 w-full">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
               <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">{incident.school}</span>
               <span className="text-slate-300">•</span>
               <span className="text-xs text-slate-500">{incident.date}</span>
@@ -2739,10 +2753,10 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
               )}
             </div>
             <h3 className="text-lg font-bold text-slate-900 mb-1">{incident.place}</h3>
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="text-sm text-slate-600 line-clamp-1">Alumnos: {incident.students}</p>
+            <div className="flex flex-col gap-1">
+              <p className="text-sm text-slate-600">Alumnos: {incident.students}</p>
               {incident.categories && incident.categories.length > 0 && (
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1">
                   {incident.categories.map(cat => (
                     <span key={cat} className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full font-medium">
                       {cat}
@@ -2750,21 +2764,22 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
                   ))}
                 </div>
               )}
+              <p className="text-sm text-slate-800 font-bold mt-1">Reporta: {incident.reporterName}</p>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex flex-col items-end">
+          <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start w-full sm:w-auto gap-3 border-t sm:border-t-0 pt-3 sm:pt-0 mt-3 sm:mt-0 border-slate-100">
+            <div className="flex flex-row sm:flex-col items-center sm:items-end gap-2">
               <div className={cn(
-                "flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold", 
-                (!incident.isReceived && role === 'COORDINATOR') ? 'text-amber-600 bg-amber-50' : getStatusColor(incident.status)
+                "flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-bold whitespace-nowrap", 
+                (!incident.isReceived && role === 'COORDINATOR' && incident.status === 'PENDIENTE') ? 'text-amber-600 bg-amber-50' : getStatusColor(incident.status)
               )}>
-                {(!incident.isReceived && role === 'COORDINATOR') 
+                {(!incident.isReceived && role === 'COORDINATOR' && incident.status === 'PENDIENTE') 
                   ? <AlertCircle className="w-3 h-3" /> 
-                  : (incident.status === 'RECIBIDO' || incident.isReceived ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />)
+                  : (incident.status === 'RECIBIDO' || incident.status === 'EN_SEGUIMIENTO' || incident.status === 'CERRADO' || incident.isReceived ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />)
                 }
-                {(!incident.isReceived && role === 'COORDINATOR') 
+                {(!incident.isReceived && role === 'COORDINATOR' && incident.status === 'PENDIENTE') 
                   ? 'Pendiente' 
-                  : (incident.isReceived && role === 'COORDINATOR' ? 'Recibido' : getStatusLabel(incident.status))
+                  : (incident.isReceived && role === 'COORDINATOR' && incident.status === 'PENDIENTE' ? 'Recibido' : getStatusLabel(incident.status))
                 }
               </div>
               {incident.readAt && (
@@ -2812,6 +2827,42 @@ const IncidentCard: React.FC<IncidentCardProps> = ({ incident, profile, onMarkRe
               )}
 
               <DetailSection label="Descripción de los hechos" content={incident.description} />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {((incident.coordinatorIds && incident.coordinatorIds.length > 0) || incident.coordinatorId) && (
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 uppercase mb-1">Coordinadores asignados</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(incident.coordinatorIds || [incident.coordinatorId]).map(id => {
+                        const coord = coordinators.find(c => c.uid === id);
+                        return (
+                          <span key={id} className="px-3 py-1 bg-indigo-50 border border-indigo-100 rounded-lg text-xs font-medium text-indigo-700 shadow-sm flex items-center gap-1">
+                            <UserIcon className="w-3 h-3" />
+                            {coord?.name || 'Cargando...'}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {incident.notifiedTeacherId && (
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 uppercase mb-1">Docente Notificado (Copia)</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(() => {
+                        const teacher = teachers.find(t => t.uid === incident.notifiedTeacherId);
+                        return (
+                          <span className="px-3 py-1 bg-slate-100 border border-slate-200 rounded-lg text-xs font-medium text-slate-600 shadow-sm flex items-center gap-1">
+                            <UserIcon className="w-3 h-3" />
+                            {teacher?.name || 'Cargando...'}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
+              </div>
               
               {incident.categories && incident.categories.length > 0 && (
                 <div>
@@ -2973,9 +3024,10 @@ const DetailSection = ({ label, content }: { label: string, content: string }) =
   </div>
 );
 
-const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotification, systemSettings, addLog }: { 
+const IncidentForm = ({ profile, coordinators, teachers, onSuccess, onCancel, sendNotification, systemSettings, addLog }: { 
   profile: UserProfile, 
-  coordinators: UserProfile[], 
+  coordinators: UserProfile[],
+  teachers: UserProfile[], 
   onSuccess: () => void, 
   onCancel: () => void, 
   sendNotification: (userId: string, title: string, message: string, incidentId?: string) => Promise<void>, 
@@ -2991,7 +3043,8 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
     description: '',
     disciplinaryMeasures: '',
     followUp: '',
-    coordinatorId: '',
+    coordinatorIds: [] as string[],
+    notifiedTeacherId: '',
     school: 'Campus Victoria',
     categories: [] as string[],
   });
@@ -3057,8 +3110,8 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.coordinatorId) {
-      setError('Por favor selecciona un coordinador');
+    if (formData.coordinatorIds.length === 0) {
+      setError('Por favor selecciona al menos un coordinador');
       return;
     }
 
@@ -3073,6 +3126,7 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
       const now = new Date();
       const newIncident: any = {
         ...formData,
+        coordinatorId: formData.coordinatorIds[0], // Main coordinator
         date: format(now, "dd/MM/yyyy HH:mm"),
         reporterName: profile.name,
         reporterId: profile.uid,
@@ -3090,46 +3144,92 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
       
       await addLog('Creó reporte de incidencia', `Lugar: ${formData.place}, Estudiantes: ${formData.students}`);
       
-      // Add in-app notification for the coordinator
-      await sendNotification(
-        formData.coordinatorId,
-        'Nueva Incidencia',
-        `Se ha registrado una nueva incidencia en "${formData.place}" por ${profile.name}.`,
-        docRef.id
-      );
+      // Notifications for coordinators
+      for (const coordId of formData.coordinatorIds) {
+        await sendNotification(
+          coordId,
+          'Nueva Incidencia',
+          `Se ha registrado una nueva incidencia en "${formData.place}" por ${profile.name}.`,
+          docRef.id
+        );
 
-      // Send email notification to the coordinator
-      if (systemSettings.emailNotificationsEnabled) {
-        const coordinator = coordinators.find(c => c.uid === formData.coordinatorId);
-        if (coordinator && coordinator.email) {
-          try {
-            await fetch('/api/send-email', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                to: coordinator.email,
-                subject: `Nueva Incidencia Reportada: ${formData.place}`,
-                html: `
-                  <div style="font-family: sans-serif; color: #334155; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
-                    <div style="background-color: #4f46e5; padding: 24px; text-align: center;">
-                      <h1 style="color: white; margin: 0; font-size: 24px;">Nueva Incidencia</h1>
-                    </div>
-                    <div style="padding: 24px;">
-                      <p style="font-size: 16px; margin-bottom: 20px;">Se ha registrado una nueva incidencia que requiere tu atención.</p>
-                      <div style="background-color: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
-                        <p style="margin: 0 0 8px 0;"><strong>Reportado por:</strong> ${profile.name}</p>
-                        <p style="margin: 0 0 8px 0;"><strong>Lugar:</strong> ${formData.place}</p>
-                        <p style="margin: 0 0 8px 0;"><strong>Alumnos:</strong> ${formData.students}</p>
-                        <p style="margin: 0;"><strong>Descripción:</strong> ${formData.description}</p>
+        if (systemSettings.emailNotificationsEnabled) {
+          const coordinator = coordinators.find(c => c.uid === coordId);
+          if (coordinator && coordinator.email) {
+            try {
+              await fetch('/api/send-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: coordinator.email,
+                  subject: `Nueva Incidencia Reportada: ${formData.place}`,
+                  html: `
+                    <div style="font-family: sans-serif; color: #334155; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+                      <div style="background-color: #4f46e5; padding: 24px; text-align: center;">
+                        <h1 style="color: white; margin: 0; font-size: 24px;">Nueva Incidencia</h1>
                       </div>
-                      <p style="font-size: 14px; color: #64748b;">Por favor, ingresa al sistema para dar seguimiento.</p>
+                      <div style="padding: 24px;">
+                        <p style="font-size: 16px; margin-bottom: 20px;">Se ha registrado una nueva incidencia que requiere tu atención.</p>
+                        <div style="background-color: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+                          <p style="margin: 0 0 8px 0;"><strong>Reportado por:</strong> ${profile.name}</p>
+                          <p style="margin: 0 0 8px 0;"><strong>Lugar:</strong> ${formData.place}</p>
+                          <p style="margin: 0 0 8px 0;"><strong>Alumnos:</strong> ${formData.students}</p>
+                          <p style="margin: 0;"><strong>Descripción:</strong> ${formData.description}</p>
+                        </div>
+                        <p style="font-size: 14px; color: #64748b;">Por favor, ingresa al sistema para dar seguimiento.</p>
+                      </div>
                     </div>
-                  </div>
-                `
-              })
-            });
-          } catch (emailError) {
-            console.error("Error sending notification email:", emailError);
+                  `
+                })
+              });
+            } catch (emailError) {
+              console.error("Error sending notification email:", emailError);
+            }
+          }
+        }
+      }
+
+      // Notification for notified teacher
+      if (formData.notifiedTeacherId) {
+        await sendNotification(
+          formData.notifiedTeacherId,
+          'Fui notificado en una incidencia',
+          `${profile.name} te ha informado sobre una nueva incidencia en "${formData.place}".`,
+          docRef.id
+        );
+
+        if (systemSettings.emailNotificationsEnabled) {
+          const teacher = teachers.find(t => t.uid === formData.notifiedTeacherId);
+          if (teacher && teacher.email) {
+            try {
+              await fetch('/api/send-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: teacher.email,
+                  subject: `Notificación de Incidencia: ${formData.place}`,
+                  html: `
+                    <div style="font-family: sans-serif; color: #334155; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+                      <div style="background-color: #6366f1; padding: 24px; text-align: center;">
+                        <h1 style="color: white; margin: 0; font-size: 24px;">Copia Informativa</h1>
+                      </div>
+                      <div style="padding: 24px;">
+                        <p style="font-size: 16px; margin-bottom: 20px;">Has sido incluido/a para tu conocimiento en el reporte de una incidencia.</p>
+                        <div style="background-color: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+                          <p style="margin: 0 0 8px 0;"><strong>Reportado por:</strong> ${profile.name}</p>
+                          <p style="margin: 0 0 8px 0;"><strong>Lugar:</strong> ${formData.place}</p>
+                          <p style="margin: 0 0 8px 0;"><strong>Alumnos:</strong> ${formData.students}</p>
+                          <p style="margin: 0;"><strong>Descripción:</strong> ${formData.description}</p>
+                        </div>
+                        <p style="font-size: 14px; color: #64748b;">Este correo es meramente informativo.</p>
+                      </div>
+                    </div>
+                  `
+                })
+              });
+            } catch (emailError) {
+              console.error("Error sending teacher notification email:", emailError);
+            }
           }
         }
       }
@@ -3154,168 +3254,306 @@ const IncidentForm = ({ profile, coordinators, onSuccess, onCancel, sendNotifica
   );
 
   return (
-    <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8">
-      <h2 className="text-2xl font-bold text-slate-900 mb-6">Reportar Incidencia</h2>
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <InputGroup label="Lugar" required>
-            <input
-              required
-              type="text"
-              value={formData.place}
-              onChange={(e) => setFormData({ ...formData, place: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-              placeholder="Ej. Patio central, Aula 3B..."
-            />
-          </InputGroup>
-          <InputGroup label="Colegio" required>
-            <select
-              required
-              value={formData.school}
-              onChange={(e) => setFormData({ ...formData, school: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-            >
-              <option value="Campus Victoria">Campus Victoria</option>
-              <option value="Campus Esperanza">Campus Esperanza</option>
-            </select>
-          </InputGroup>
+    <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
+      <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 p-6 md:p-8 text-white relative">
+        <div className="relative z-10">
+          <h2 className="text-2xl font-bold flex items-center gap-3">
+            <ClipboardList className="w-8 h-8" />
+            Reportar Incidencia
+          </h2>
         </div>
+        <div className="absolute top-0 right-0 w-32 h-full bg-white/10 -skew-x-12 translate-x-16"></div>
+      </div>
 
-        <InputGroup label="Alumnos involucrados" required>
-          <input
-            required
-            type="text"
-            value={formData.students}
-            onChange={(e) => setFormData({ ...formData, students: e.target.value })}
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-            placeholder="Nombres de los alumnos..."
-          />
-        </InputGroup>
-
-        <InputGroup label="Categoría de la Incidencia">
-          <div className="flex flex-col gap-4">
-            <select
-              onChange={(e) => {
-                const cat = e.target.value;
-                if (cat && !formData.categories.includes(cat)) {
-                  setFormData({ ...formData, categories: [...formData.categories, cat] });
-                }
-                e.target.value = ""; // Reset select
-              }}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-            >
-              <option value="">Selecciona una categoría...</option>
-              {(systemSettings.categories || []).map(cat => (
-                <option key={cat} value={cat} disabled={formData.categories.includes(cat)}>
-                  {cat}
-                </option>
-              ))}
-            </select>
-
-            <div className="flex flex-wrap gap-2">
-              {formData.categories.map((cat) => (
-                <div 
-                  key={cat}
-                  onClick={() => {
-                    setFormData({ ...formData, categories: formData.categories.filter(c => c !== cat) });
-                  }}
-                  className="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full text-sm font-bold cursor-pointer hover:bg-indigo-100 transition-all animate-in fade-in zoom-in duration-200"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{cat}</span>
-                  <X className="w-3 h-3 ml-1 opacity-50" />
-                </div>
-              ))}
+      <form onSubmit={handleSubmit} className="p-6 md:p-8 space-y-8">
+        {/* Section 1: General Info */}
+        <div className="space-y-6">
+          <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+            <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+              <School className="w-5 h-5" />
             </div>
+            <h3 className="font-bold text-slate-800">Información General</h3>
           </div>
-        </InputGroup>
-
-        <InputGroup label="Descripción de los hechos" required>
-          <textarea
-            required
-            rows={4}
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-            placeholder="Describe detalladamente lo ocurrido..."
-          />
-        </InputGroup>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <InputGroup label="Medidas disciplinarias">
-            <textarea
-              rows={3}
-              value={formData.disciplinaryMeasures}
-              onChange={(e) => setFormData({ ...formData, disciplinaryMeasures: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-            />
-          </InputGroup>
-          <InputGroup label="Seguimiento">
-            <textarea
-              rows={3}
-              value={formData.followUp}
-              onChange={(e) => setFormData({ ...formData, followUp: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-            />
-          </InputGroup>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <InputGroup label="Coordinador asignado" required>
-            <select
-              required
-              value={formData.coordinatorId}
-              onChange={(e) => setFormData({ ...formData, coordinatorId: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-            >
-              <option value="">Selecciona un coordinador</option>
-              {filteredCoordinators.map((c) => (
-                <option key={c.uid} value={c.uid}>{c.name}</option>
-              ))}
-            </select>
-          </InputGroup>
-          <InputGroup label="Adjuntar Imágenes (Opcional - Máximo 5 archivos)">
-            <input
-              type="file"
-              multiple
-              accept="image/*"
-              onChange={handleImageChange}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all text-sm"
-            />
-          </InputGroup>
-        </div>
-
-        {images.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {images.map((img, idx) => (
-              <div key={idx} className="relative w-20 h-20 rounded-lg overflow-hidden border border-slate-200">
-                <img src={img} alt={`Preview ${idx}`} className="w-full h-full object-cover" />
-                <button
-                  type="button"
-                  onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
-                  className="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-bl-lg"
-                >
-                  <X className="w-3 h-3" />
-                </button>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <InputGroup label="Lugar del Incidente" required>
+              <div className="relative">
+                <input
+                  required
+                  type="text"
+                  value={formData.place}
+                  onChange={(e) => setFormData({ ...formData, place: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-10 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                  placeholder="Ej. Patio central, Aula 3B..."
+                />
+                <AlertCircle className="w-5 h-5 absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" />
               </div>
-            ))}
+            </InputGroup>
+            
+            <InputGroup label="Campus" required>
+              <select
+                required
+                value={formData.school}
+                onChange={(e) => setFormData({ ...formData, school: e.target.value })}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+              >
+                <option value="Campus Victoria">Campus Victoria</option>
+                <option value="Campus Esperanza">Campus Esperanza</option>
+              </select>
+            </InputGroup>
           </div>
+
+          <InputGroup label="Alumnos involucrados" required>
+            <div className="relative">
+              <input
+                required
+                type="text"
+                value={formData.students}
+                onChange={(e) => setFormData({ ...formData, students: e.target.value })}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-10 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                placeholder="Ingresa los nombres de los alumnos involucrados..."
+              />
+              <Users className="w-5 h-5 absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" />
+            </div>
+          </InputGroup>
+        </div>
+
+        {/* Section 2: Details */}
+        <div className="space-y-6">
+          <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+            <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <h3 className="font-bold text-slate-800">Detalles de lo Ocurrido</h3>
+          </div>
+
+          <InputGroup label="Categoría de la Incidencia">
+            <div className="flex flex-col gap-3">
+              <select
+                onChange={(e) => {
+                  const cat = e.target.value;
+                  if (cat && !formData.categories.includes(cat)) {
+                    setFormData({ ...formData, categories: [...formData.categories, cat] });
+                  }
+                  e.target.value = "";
+                }}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+              >
+                <option value="">Selecciona etiquetas para categorizar...</option>
+                {(systemSettings.categories || []).map(cat => (
+                  <option key={cat} value={cat} disabled={formData.categories.includes(cat)}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+
+              <div className="flex flex-wrap gap-2">
+                {formData.categories.length > 0 ? (
+                  formData.categories.map((cat) => (
+                    <div 
+                      key={cat}
+                      onClick={() => {
+                        setFormData({ ...formData, categories: formData.categories.filter(c => c !== cat) });
+                      }}
+                      className="flex items-center gap-2 bg-slate-100 text-slate-700 px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer hover:bg-red-50 hover:text-red-700 hover:border-red-100 border border-transparent transition-all animate-in fade-in zoom-in duration-200 group"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>{cat}</span>
+                      <X className="w-3 h-3 ml-1 text-slate-400 group-hover:text-red-400" />
+                    </div>
+                  ))
+                ) : (
+                  <span className="text-xs text-slate-400 italic px-1">Sin categorías seleccionadas</span>
+                )}
+              </div>
+            </div>
+          </InputGroup>
+
+          <InputGroup label="Descripción Detallada de los Hechos" required>
+            <textarea
+              required
+              rows={4}
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-none"
+              placeholder="¿Qué sucedió? Describe con precisión el evento..."
+            />
+          </InputGroup>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <InputGroup label="Medidas Disciplinarias">
+              <textarea
+                rows={3}
+                value={formData.disciplinaryMeasures}
+                onChange={(e) => setFormData({ ...formData, disciplinaryMeasures: e.target.value })}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-none"
+                placeholder="Acciones tomadas al momento..."
+              />
+            </InputGroup>
+            <InputGroup label="Seguimiento">
+              <textarea
+                rows={3}
+                value={formData.followUp}
+                onChange={(e) => setFormData({ ...formData, followUp: e.target.value })}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all resize-none"
+                placeholder="Pasos a seguir recomendados..."
+              />
+            </InputGroup>
+          </div>
+        </div>
+
+        {/* Section 3: Assignment & Notifications */}
+        <div className="space-y-6">
+          <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+            <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+              <Send className="w-5 h-5" />
+            </div>
+            <h3 className="font-bold text-slate-800">Asignación y Notificaciones</h3>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <InputGroup label="Coordinador asignado" required>
+              <div className="space-y-3">
+                <select
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    if (id && !formData.coordinatorIds.includes(id) && formData.coordinatorIds.length < 2) {
+                      setFormData({ ...formData, coordinatorIds: [...formData.coordinatorIds, id] });
+                    }
+                    e.target.value = "";
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                >
+                  <option value="">Selecciona responsable(s)...</option>
+                  {filteredCoordinators.map((c) => (
+                    <option key={c.uid} value={c.uid} disabled={formData.coordinatorIds.includes(c.uid)}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="flex flex-wrap gap-2">
+                  {formData.coordinatorIds.map((id) => {
+                    const coord = coordinators.find(c => c.uid === id);
+                    return (
+                      <div 
+                        key={id}
+                        onClick={() => {
+                          setFormData({ ...formData, coordinatorIds: formData.coordinatorIds.filter(cId => cId !== id) });
+                        }}
+                        className="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer hover:bg-red-50 hover:text-red-700 border border-indigo-100 hover:border-red-100 transition-all group"
+                      >
+                        <UserIcon className="w-3.5 h-3.5" />
+                        <span>{coord?.name}</span>
+                        <X className="w-3 h-3 ml-1 text-indigo-300 group-hover:text-red-400" />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </InputGroup>
+
+            <InputGroup label="Copiar a Docente">
+              <select
+                value={formData.notifiedTeacherId}
+                onChange={(e) => setFormData({ ...formData, notifiedTeacherId: e.target.value })}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+              >
+                <option value="">Selecciona docente opcional...</option>
+                {teachers
+                  .filter(t => t.uid !== profile.uid)
+                  .map((t) => (
+                    <option key={t.uid} value={t.uid}>{t.name}</option>
+                  ))
+                }
+              </select>
+            </InputGroup>
+          </div>
+
+          <InputGroup label="Evidencia Fotográfica (Máximo 5)">
+            <div className="group relative border-2 border-dashed border-slate-200 rounded-xl p-4 hover:border-indigo-300 hover:bg-indigo-50/30 transition-all cursor-pointer text-center">
+              <input
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={handleImageChange}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              />
+              <div className="flex flex-col items-center justify-center py-2">
+                <ImageIcon className="w-8 h-8 text-slate-400 group-hover:text-indigo-500 mb-2 transition-colors" />
+                <p className="text-sm font-medium text-slate-600">Haz clic o arrastra imágenes aquí</p>
+                <p className="text-xs text-slate-400 mt-1">Formato JPG, PNG (Max. 5 archivos)</p>
+              </div>
+            </div>
+
+            {images.length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-3">
+                {images.map((img, idx) => (
+                  <div key={idx} className="relative group/img w-24 h-24 rounded-xl overflow-hidden border-2 border-slate-100 shadow-sm">
+                    <img src={img} alt={`Preview ${idx}`} className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
+                      className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full opacity-0 group-hover/img:opacity-100 transition-opacity backdrop-blur-sm"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                    <div className="absolute bottom-0 inset-x-0 bg-black/40 py-0.5 text-[8px] text-white text-center font-bold">
+                      IMAGEN {idx + 1}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {processingImages > 0 && (
+              <div className="mt-3 flex items-center gap-2 text-indigo-600 text-xs font-bold animate-pulse">
+                <div className="w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                Procesando {processingImages} imagen(es)...
+              </div>
+            )}
+          </InputGroup>
+        </div>
+
+        {error && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-700 text-sm font-medium"
+          >
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            {error}
+          </motion.div>
         )}
 
-        <div className="flex items-center gap-4 pt-4">
+        <div className="pt-6 border-t border-slate-100 flex items-center justify-end gap-4">
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 px-6 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all"
+            className="px-6 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-xl transition-all"
+            disabled={loading}
           >
             Cancelar
           </button>
           <button
             type="submit"
-            disabled={loading}
-            className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-indigo-100 transition-all disabled:opacity-50"
+            disabled={loading || processingImages > 0}
+            className={cn(
+              "px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transform hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center gap-2",
+              (loading || processingImages > 0) && "opacity-50 cursor-not-allowed transform-none"
+            )}
           >
-            {loading ? 'Enviando...' : 'Guardar Reporte'}
+            {loading ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Registrando...
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-5 h-5" />
+                Registrar Incidencia
+              </>
+            )}
           </button>
         </div>
       </form>
@@ -3463,36 +3701,42 @@ const UserManagement = ({ profile, coordinators, teachers, admins, addLog }: {
         </button>
       </div>
 
-      <div className={cn(
-        "grid grid-cols-1 gap-8",
-        (isAdmin || isSuperAdmin) ? "md:grid-cols-2 lg:grid-cols-3" : "md:grid-cols-2"
-      )}>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         {(isAdmin || isSuperAdmin) && (
+          <div className="xl:col-span-1">
+            <UserList 
+              title="Administradores" 
+              users={admins.filter(u => u.email !== 'jorge.villanueva@boletomovil.com')} 
+              onDelete={deleteUser} 
+              onUpdateRole={updateUserRole}
+              showPasswords={isSuperAdmin}
+              canChangeRole={isSuperAdmin || isAdmin}
+            />
+          </div>
+        )}
+        <div className={cn(
+          "xl:col-span-1",
+          (!isAdmin && !isSuperAdmin) && "md:grid-cols-2"
+        )}>
           <UserList 
-            title="Administradores" 
-            users={admins.filter(u => u.email !== 'jorge.villanueva@boletomovil.com')} 
+            title="Coordinadores" 
+            users={coordinators.filter(u => u.email !== 'jorge.villanueva@boletomovil.com')} 
             onDelete={deleteUser} 
             onUpdateRole={updateUserRole}
             showPasswords={isSuperAdmin}
             canChangeRole={isSuperAdmin || isAdmin}
           />
-        )}
-        <UserList 
-          title="Coordinadores" 
-          users={coordinators.filter(u => u.email !== 'jorge.villanueva@boletomovil.com')} 
-          onDelete={deleteUser} 
-          onUpdateRole={updateUserRole}
-          showPasswords={isSuperAdmin}
-          canChangeRole={isSuperAdmin || isAdmin}
-        />
-        <UserList 
-          title="Docentes" 
-          users={teachers.filter(u => u.email !== 'jorge.villanueva@boletomovil.com')} 
-          onDelete={deleteUser} 
-          onUpdateRole={updateUserRole}
-          showPasswords={isSuperAdmin}
-          canChangeRole={isSuperAdmin || isAdmin}
-        />
+        </div>
+        <div className="xl:col-span-1">
+          <UserList 
+            title="Docentes" 
+            users={teachers.filter(u => u.email !== 'jorge.villanueva@boletomovil.com')} 
+            onDelete={deleteUser} 
+            onUpdateRole={updateUserRole}
+            showPasswords={isSuperAdmin}
+            canChangeRole={isSuperAdmin || isAdmin}
+          />
+        </div>
       </div>
 
       {/* Add User Modal */}
@@ -3644,60 +3888,92 @@ const UserManagement = ({ profile, coordinators, teachers, admins, addLog }: {
   );
 };
 
-const UserList = ({ title, users, onDelete, onUpdateRole, showPasswords, canChangeRole }: { title: string, users: UserProfile[], onDelete: (user: UserProfile) => void, onUpdateRole: (user: UserProfile, role: UserRole) => void, showPasswords?: boolean, canChangeRole?: boolean }) => (
-  <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-    <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-      <h3 className="font-bold text-slate-900">{title}</h3>
-    </div>
-    <div className="divide-y divide-slate-100">
-      {users.length === 0 ? (
-        <div className="p-8 text-center text-slate-400 text-sm">No hay {title.toLowerCase()} registrados.</div>
-      ) : (
-        users.map((u) => (
-          <div key={u.email} className="p-4 flex items-center justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="font-bold text-slate-900 truncate">{u.name}</p>
-                {canChangeRole && (
-                  <select
-                    value={u.role}
-                    onChange={(e) => onUpdateRole(u, e.target.value as UserRole)}
-                    className="text-[10px] font-bold bg-slate-100 border-none rounded px-1.5 py-0.5 text-slate-600 focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                  >
-                    <option value="TEACHER">Docente</option>
-                    <option value="COORDINATOR">Coordinador</option>
-                    <option value="ADMIN">Admin</option>
-                  </select>
-                )}
-              </div>
-              <div className="flex items-center gap-3 mt-1">
-                <span className="flex items-center gap-1 text-xs text-slate-500">
-                  <Mail className="w-3 h-3" />
-                  {u.email}
-                </span>
-                {u.phone && (
-                  <span className="flex items-center gap-1 text-xs text-slate-500">
-                    <Phone className="w-3 h-3" />
-                    {u.phone}
-                  </span>
-                )}
-                {showPasswords && u.password !== undefined && (
-                  <span className="flex items-center gap-1 text-xs font-mono text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
-                    <Lock className="w-3 h-3" />
-                    {u.password || <span className="italic opacity-50 text-[10px]">Sin registro</span>}
-                  </span>
-                )}
+const UserList = ({ title, users, onDelete, onUpdateRole, showPasswords, canChangeRole }: { title: string, users: UserProfile[], onDelete: (user: UserProfile) => void, onUpdateRole: (user: UserProfile, role: UserRole) => void, showPasswords?: boolean, canChangeRole?: boolean }) => {
+  const getInitials = (name: string) => {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 0) return '';
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col h-full shadow-sm">
+      <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+        <h3 className="font-bold text-slate-900 flex items-center gap-2">
+          <span className="w-1.5 h-6 bg-indigo-500 rounded-full"></span>
+          {title}
+        </h3>
+        <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+          {users.length}
+        </span>
+      </div>
+      <div className="divide-y divide-slate-100 overflow-y-auto max-h-[500px]">
+        {users.length === 0 ? (
+          <div className="p-12 text-center text-slate-400">
+            <UserIcon className="w-12 h-12 mx-auto mb-3 opacity-20" />
+            <p className="text-sm font-medium">No hay {title.toLowerCase()} registrados.</p>
+          </div>
+        ) : (
+          users.map((u) => (
+            <div key={u.email} className="p-4 hover:bg-slate-50 transition-colors group">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-sm flex-shrink-0 border border-indigo-100 uppercase">
+                  {getInitials(u.name)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1">
+                    <p className="font-bold text-slate-900 truncate max-w-[150px] sm:max-w-none">{u.name}</p>
+                    {canChangeRole && (
+                      <div className="relative group/select">
+                        <select
+                          value={u.role}
+                          onChange={(e) => onUpdateRole(u, e.target.value as UserRole)}
+                          className="appearance-none text-[10px] font-bold bg-white border border-slate-200 rounded-full pl-2 pr-5 py-0.5 text-slate-500 hover:text-indigo-600 hover:border-indigo-200 transition-all cursor-pointer focus:ring-1 focus:ring-indigo-500 outline-none"
+                        >
+                          <option value="TEACHER">Docente</option>
+                          <option value="COORDINATOR">Coordinador</option>
+                          <option value="ADMIN">Admin</option>
+                        </select>
+                        <ChevronDown className="w-3 h-3 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500 min-w-0">
+                      <Mail className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
+                      <span className="truncate" title={u.email}>{u.email}</span>
+                    </div>
+                    {u.phone && (
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500 min-w-0">
+                        <Phone className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
+                        <span className="truncate">{u.phone}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {showPasswords && u.password !== undefined && (
+                    <div className="mt-2 flex items-center gap-2">
+                       <span className="text-[10px] uppercase font-bold text-slate-400">Contraseña:</span>
+                       <span className="flex items-center gap-1.5 text-[11px] font-mono font-bold text-indigo-600 bg-indigo-50/50 border border-indigo-100/50 px-2 py-0.5 rounded cursor-default group-hover:bg-indigo-50 transition-colors">
+                        <Lock className="w-3 h-3" />
+                        {u.password || <span className="italic opacity-50 font-sans">Sin registro</span>}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => onDelete(u)}
+                  className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100 flex-shrink-0 focus:opacity-100"
+                  title="Eliminar usuario"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
               </div>
             </div>
-            <button
-              onClick={() => onDelete(u)}
-              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        ))
-      )}
+          ))
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};

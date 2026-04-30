@@ -38,6 +38,8 @@ export interface Incident {
   reporterId: string;
   reporterEmail?: string;
   coordinatorId: string;
+  coordinatorIds?: string[];
+  notifiedTeacherId?: string;
   school: string;
   isReceived: boolean;
   status?: IncidentStatus;
